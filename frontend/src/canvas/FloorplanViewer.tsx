@@ -13,7 +13,6 @@ import type {
   MeasurementState,
   WallType,
   RoomType,
-  TextAnnotation,
 } from '@/types/floorplan';
 import './FloorplanViewer.css';
 
@@ -700,174 +699,32 @@ function exportSVG(stageRef: React.RefObject<Konva.Stage | null>): void {
   a.click();
 }
 
-// ---------------------------------------------------------------------------
-// Convert /api/extract response → FloorplanData for rendering
-// ---------------------------------------------------------------------------
-
-interface AnalyzeResponse {
-  rooms: Array<{
-    id: string; type: string; type_he: string; confidence: number;
-    area_sqm: number; perimeter_m: number; polygon: number[][];
-    centroid: { x: number; y: number }; label_point: { x: number; y: number };
-    classification_method: string; needs_review: boolean; is_modifiable: boolean;
-  }>;
-  walls: Array<{
-    id: string; start: { x: number; y: number }; end: { x: number; y: number };
-    width: number; wall_type: string; is_structural: boolean;
-    is_modifiable: boolean; confidence: number; rooms: string[];
-  }>;
-  openings: Array<{
-    id: string; type: string; width_cm: number;
-    position: { x: number; y: number }; wall_id: string;
-    rooms: string[]; swing_direction?: string;
-  }>;
-  texts: Array<{ content: string; x: number; y: number; font_size: number }>;
-  confidence: number;
-  page_size: { width: number; height: number };
-  scale_factor: number;
-  metadata?: {
-    scale_notation: string | null; scale_value: number | null;
-    total_area_sqm: number | null; balcony_area_sqm: number | null;
-  };
-  page_num: number;
-  page_count: number;
-  pipeline_stats?: Record<string, unknown>;
-}
-
-function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
-  const rooms: Room[] = raw.rooms.map((r) => ({
-    id: r.id,
-    type: r.type as RoomType,
-    type_he: r.type_he,
-    confidence: r.confidence,
-    area_sqm: r.area_sqm,
-    perimeter_m: r.perimeter_m,
-    polygon: r.polygon,
-    centroid: r.centroid,
-    label_point: r.label_point,
-    classification_method: r.classification_method,
-    needs_review: r.needs_review,
-    is_modifiable: r.is_modifiable,
-  }));
-
-  const walls: Wall[] = raw.walls.map((w) => ({
-    id: w.id,
-    start: w.start,
-    end: w.end,
-    width: w.width,
-    wall_type: w.wall_type as WallType,
-    is_structural: w.is_structural,
-    is_modifiable: w.is_modifiable,
-    confidence: w.confidence,
-    rooms: w.rooms,
-  }));
-
-  const openings: Opening[] = raw.openings.map((o) => ({
-    id: o.id,
-    type: o.type as Opening['type'],
-    width_cm: o.width_cm,
-    position: o.position,
-    wall_id: o.wall_id,
-    rooms: o.rooms,
-    swing_direction: o.swing_direction,
-  }));
-
-  const texts: TextAnnotation[] = (raw.texts ?? []).map((t) => ({
-    content: t.content,
-    x: t.x,
-    y: t.y,
-    font_size: t.font_size,
-  }));
-
-  return {
-    rooms,
-    walls,
-    openings,
-    envelope: null,
-    validation: null,
-    confidence: raw.confidence,
-    page_size: raw.page_size,
-    scale_factor: raw.scale_factor,
-    texts,
-    stated_area_sqm: raw.metadata?.total_area_sqm ?? null,
-    stated_balcony_sqm: raw.metadata?.balcony_area_sqm ?? null,
-  };
-}
+// analyzeToFloorplan moved to floorplanUtils.ts for sharing with App.tsx
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function FloorplanViewer({
-  data: dataProp = null,
-  loading: loadingProp = false,
+  data = null,
+  loading = false,
+  error = null,
+  pageCount = 1,
+  currentPage = 0,
+  onPageChange,
+  onUpload,
 }: {
   data?: FloorplanData | null;
   loading?: boolean;
+  error?: string | null;
+  pageCount?: number;
+  currentPage?: number;
+  onPageChange?: (page: number) => void;
+  onUpload?: () => void;
 }) {
   const intl = useIntl();
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Internal data state (used when no prop is provided)
-  const [internalData, setInternalData] = useState<FloorplanData | null>(null);
-  const [internalLoading, setInternalLoading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pageCount, setPageCount] = useState(1);
-  const [currentPage, setCurrentPage] = useState(0);
-
-  const data = dataProp ?? internalData;
-  const loading = loadingProp || internalLoading;
-
-  // Fetch a specific page from the stored PDF — runs full analysis pipeline
-  const fetchPage = useCallback(async (file: File, pageNum: number) => {
-    setInternalLoading(true);
-    setUploadError(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('page_num', String(pageNum));
-
-    try {
-      const resp = await fetch('http://localhost:8000/api/analyze', {
-        method: 'POST',
-        body: formData,
-      });
-      if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail?.message_he || err.detail?.message_en || 'שגיאה');
-      }
-      const raw: AnalyzeResponse = await resp.json();
-      setPageCount(raw.page_count);
-      setCurrentPage(raw.page_num);
-      setInternalData(analyzeToFloorplan(raw));
-    } catch (e) {
-      setUploadError(e instanceof Error ? e.message : 'שגיאה');
-    } finally {
-      setInternalLoading(false);
-    }
-  }, []);
-
-  // Upload handler
-  const handleUpload = useCallback(async () => {
-    const input = fileInputRef.current;
-    if (!input?.files?.[0]) return;
-    const file = input.files[0];
-    setPdfFile(file);
-    setCurrentPage(0);
-    await fetchPage(file, 0);
-  }, [fetchPage]);
-
-  // Page change handler
-  const handlePageChange = useCallback(
-    (pageNum: number) => {
-      if (!pdfFile || pageNum === currentPage) return;
-      fetchPage(pdfFile, pageNum);
-    },
-    [pdfFile, currentPage, fetchPage],
-  );
 
   // Canvas size
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
@@ -1068,27 +925,17 @@ export default function FloorplanViewer({
 
       {/* ---- Toolbar ---- */}
       <div className="fp-toolbar" role="toolbar" aria-label={fmt('toolbar.layers')}>
-        {/* Upload */}
+        {/* Upload + page selector — controlled by App */}
         <div className="fp-toolbar-group">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf"
-            onChange={handleUpload}
-            hidden
-            aria-label={fmt('debug.uploadPdf')}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            aria-label={fmt('debug.uploadPdf')}
-          >
-            {fmt('debug.uploadPdf')}
-          </button>
-          {/* Page selector — shown for multi-page PDFs */}
-          {pageCount > 1 && (
+          {onUpload && (
+            <button onClick={onUpload} aria-label={fmt('debug.uploadPdf')}>
+              {fmt('debug.uploadPdf')}
+            </button>
+          )}
+          {pageCount > 1 && onPageChange && (
             <select
               value={currentPage}
-              onChange={(e) => handlePageChange(Number(e.target.value))}
+              onChange={(e) => onPageChange(Number(e.target.value))}
               style={{
                 padding: '4px 8px',
                 fontSize: '0.82rem',
@@ -1188,13 +1035,13 @@ export default function FloorplanViewer({
             </div>
           )}
 
-          {uploadError && (
+          {error && (
             <div className="fp-loading" role="alert" style={{ color: '#c62828' }}>
-              {uploadError}
+              {error}
             </div>
           )}
 
-          {!data && !loading && !uploadError && (
+          {!data && !loading && !error && (
             <div className="fp-placeholder">{fmt('viewer.noData')}</div>
           )}
 
