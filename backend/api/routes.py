@@ -146,6 +146,7 @@ class OpeningResponse(BaseModel):
     wall_id: str = ""
     rooms: list[str] = Field(default_factory=list)
     swing_direction: Optional[str] = None
+    endpoints: Optional[list[PointResponse]] = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -409,12 +410,16 @@ async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
         # Serialize openings
         opening_responses = []
         for i, o in enumerate(openings):
+            ep = None
+            if o.endpoints:
+                ep = [PointResponse(x=p[0], y=p[1]) for p in o.endpoints]
             opening_responses.append(OpeningResponse(
                 id=f"opening_{i}",
                 type=o.opening_type,
                 width_cm=o.width_cm,
                 position=PointResponse(x=o.position[0], y=o.position[1]),
                 swing_direction=o.swing_direction,
+                endpoints=ep,
             ))
 
         # Texts
