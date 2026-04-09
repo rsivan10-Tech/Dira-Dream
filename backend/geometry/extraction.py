@@ -24,7 +24,7 @@ HAIRLINE_WIDTH = 0.1  # Zero-width strokes treated as hairline
 BEZIER_SUBDIVISIONS = 10  # Points for cubic Bézier approximation
 CROP_PADDING_RATIO = 0.10  # 10% padding around apartment bbox
 THICK_PERCENTILE = 80  # Percentile threshold for "thick" segments
-ISOLATION_MARGIN = 0.30  # Expand seed polygon bbox by 30% each direction
+ISOLATION_MARGIN = 0.40  # Expand seed polygon bbox by 40% of max dimension
 ISOLATION_PERCENTILE = 90  # Percentile for thick-wall polygonize
 MIN_POLYGON_AREA = 500  # Minimum polygon area to consider (in pt²)
 
@@ -363,15 +363,18 @@ def isolate_apartment(data: dict) -> dict:
         return data
 
     # --- Expand seed bounds ---
+    # Use uniform expansion based on the LARGER dimension so the short axis
+    # gets adequate coverage (seed polygons are often wider than tall).
     bx0, by0, bx1, by1 = best_poly.bounds
     seed_w = bx1 - bx0
     seed_h = by1 - by0
+    expansion = max(seed_w, seed_h) * ISOLATION_MARGIN
 
     exp_bbox = (
-        max(0.0, bx0 - seed_w * ISOLATION_MARGIN),
-        max(0.0, by0 - seed_h * ISOLATION_MARGIN),
-        min(page_w, bx1 + seed_w * ISOLATION_MARGIN),
-        min(page_h, by1 + seed_h * ISOLATION_MARGIN),
+        max(0.0, bx0 - expansion),
+        max(0.0, by0 - expansion),
+        min(page_w, bx1 + expansion),
+        min(page_h, by1 + expansion),
     )
 
     # Skip if expanded bbox covers >90% of the page (no neighbor to remove)
