@@ -664,85 +664,73 @@ function exportSVG(stageRef: React.RefObject<Konva.Stage | null>): void {
 // Convert /api/extract response → FloorplanData for rendering
 // ---------------------------------------------------------------------------
 
-interface ExtractSegment {
-  x1: number; y1: number; x2: number; y2: number;
-  width: number; color: number[]; dash_pattern: string | null;
-}
-
-interface ExtractText {
-  content: string; x: number; y: number; font_size: number;
-}
-
-interface ExtractResponse {
-  segments: ExtractSegment[];
-  texts: ExtractText[];
+interface AnalyzeResponse {
+  rooms: Array<{
+    id: string; type: string; type_he: string; confidence: number;
+    area_sqm: number; perimeter_m: number; polygon: number[][];
+    centroid: { x: number; y: number }; label_point: { x: number; y: number };
+    classification_method: string; needs_review: boolean; is_modifiable: boolean;
+  }>;
+  walls: Array<{
+    id: string; start: { x: number; y: number }; end: { x: number; y: number };
+    width: number; wall_type: string; is_structural: boolean;
+    is_modifiable: boolean; confidence: number; rooms: string[];
+  }>;
+  openings: Array<{
+    id: string; type: string; width_cm: number;
+    position: { x: number; y: number }; wall_id: string;
+    rooms: string[]; swing_direction?: string;
+  }>;
+  texts: Array<{ content: string; x: number; y: number; font_size: number }>;
+  confidence: number;
   page_size: { width: number; height: number };
-  histogram: {
-    widths: number[];
-    peaks: number[];
-    suggested_thresholds: number[];
-  };
+  scale_factor: number;
   metadata?: {
-    scale_notation: string | null;
-    scale_value: number | null;
-    total_area_sqm: number | null;
-    balcony_area_sqm: number | null;
+    scale_notation: string | null; scale_value: number | null;
+    total_area_sqm: number | null; balcony_area_sqm: number | null;
   };
   page_num: number;
   page_count: number;
+  pipeline_stats?: Record<string, unknown>;
 }
 
-function classifyByWidth(
-  width: number,
-  thresholds: number[],
-  peaks: number[],
-): WallType {
-  if (thresholds.length === 0 || peaks.length === 0) return 'partition';
+function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
+  const rooms: Room[] = raw.rooms.map((r) => ({
+    id: r.id,
+    type: r.type as RoomType,
+    type_he: r.type_he,
+    confidence: r.confidence,
+    area_sqm: r.area_sqm,
+    perimeter_m: r.perimeter_m,
+    polygon: r.polygon,
+    centroid: r.centroid,
+    label_point: r.label_point,
+    classification_method: r.classification_method,
+    needs_review: r.needs_review,
+    is_modifiable: r.is_modifiable,
+  }));
 
-  // Use the highest peak as the "wall" width reference.
-  // Segments significantly thicker than the dominant peak are exterior.
-  // Segments near or below the dominant peak are partition.
-  // Only a narrow top band is structural.
-  const maxPeak = peaks[peaks.length - 1];
-  const topThreshold = thresholds[thresholds.length - 1];
+  const walls: Wall[] = raw.walls.map((w) => ({
+    id: w.id,
+    start: w.start,
+    end: w.end,
+    width: w.width,
+    wall_type: w.wall_type as WallType,
+    is_structural: w.is_structural,
+    is_modifiable: w.is_modifiable,
+    confidence: w.confidence,
+    rooms: w.rooms,
+  }));
 
-  // Above the highest threshold → exterior (thickest walls)
-  if (width > topThreshold) return 'exterior';
-
-  // Above 80% of the top peak → structural (load-bearing interior)
-  if (peaks.length >= 3 && width > maxPeak * 0.8) return 'structural';
-
-  // Everything else → partition (most common)
-  return 'partition';
-}
-
-function extractToFloorplan(raw: ExtractResponse): FloorplanData {
-  const thresholds = raw.histogram?.suggested_thresholds ?? [];
-  const peaks = raw.histogram?.peaks ?? [];
-
-  const walls: Wall[] = raw.segments.map((seg, i) => {
-    const wt = classifyByWidth(seg.width, thresholds, peaks);
-    return {
-      id: `wall_${i}`,
-      start: { x: seg.x1, y: seg.y1 },
-      end: { x: seg.x2, y: seg.y2 },
-      width: seg.width,
-      wall_type: wt,
-      is_structural: wt === 'exterior' || wt === 'structural',
-      is_modifiable: wt === 'partition',
-      confidence: 50,
-      rooms: [],
-    };
-  });
-
-  // Derive scale_factor from metadata if available
-  // 1 PDF point = 1/72 inch = 0.0254/72 m on paper
-  // At scale 1:S, real-world = paper × S
-  // So 1 pt = (0.0254 / 72) * S metres in real world
-  const scaleValue = raw.metadata?.scale_value ?? 0;
-  const scaleFactor = scaleValue > 0
-    ? (0.0254 / 72) * scaleValue
-    : 0;
+  const openings: Opening[] = raw.openings.map((o) => ({
+    id: o.id,
+    type: o.type as Opening['type'],
+    width_cm: o.width_cm,
+    position: o.position,
+    wall_id: o.wall_id,
+    rooms: o.rooms,
+    swing_direction: o.swing_direction,
+  }));
 
   const texts: TextAnnotation[] = (raw.texts ?? []).map((t) => ({
     content: t.content,
@@ -752,14 +740,14 @@ function extractToFloorplan(raw: ExtractResponse): FloorplanData {
   }));
 
   return {
-    rooms: [],
+    rooms,
     walls,
-    openings: [],
+    openings,
     envelope: null,
     validation: null,
-    confidence: scaleValue > 0 ? 30 : 0,
+    confidence: raw.confidence,
     page_size: raw.page_size,
-    scale_factor: scaleFactor,
+    scale_factor: raw.scale_factor,
     texts,
   };
 }
@@ -791,7 +779,7 @@ export default function FloorplanViewer({
   const data = dataProp ?? internalData;
   const loading = loadingProp || internalLoading;
 
-  // Fetch a specific page from the stored PDF
+  // Fetch a specific page from the stored PDF — runs full analysis pipeline
   const fetchPage = useCallback(async (file: File, pageNum: number) => {
     setInternalLoading(true);
     setUploadError(null);
@@ -801,7 +789,7 @@ export default function FloorplanViewer({
     formData.append('page_num', String(pageNum));
 
     try {
-      const resp = await fetch('http://localhost:8000/api/extract', {
+      const resp = await fetch('http://localhost:8000/api/analyze', {
         method: 'POST',
         body: formData,
       });
@@ -809,10 +797,10 @@ export default function FloorplanViewer({
         const err = await resp.json();
         throw new Error(err.detail?.message_he || err.detail?.message_en || 'שגיאה');
       }
-      const raw: ExtractResponse = await resp.json();
+      const raw: AnalyzeResponse = await resp.json();
       setPageCount(raw.page_count);
       setCurrentPage(raw.page_num);
-      setInternalData(extractToFloorplan(raw));
+      setInternalData(analyzeToFloorplan(raw));
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : 'שגיאה');
     } finally {

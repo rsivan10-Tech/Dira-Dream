@@ -20,13 +20,14 @@ from scipy.spatial import KDTree
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 
-from backend.geometry.models import (
-    AREA_HEURISTICS,
-    STRUCTURAL_DISCLAIMER,
-    Opening,
-    Room,
-    WallInfo,
-)
+try:
+    from backend.geometry.models import (
+        AREA_HEURISTICS, STRUCTURAL_DISCLAIMER, Opening, Room, WallInfo,
+    )
+except ModuleNotFoundError:
+    from geometry.models import (
+        AREA_HEURISTICS, STRUCTURAL_DISCLAIMER, Opening, Room, WallInfo,
+    )
 
 logger = logging.getLogger(__name__)
 

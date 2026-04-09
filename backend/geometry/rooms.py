@@ -19,12 +19,14 @@ import networkx as nx
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import polygonize
 
-from backend.geometry.models import (
-    AREA_HEURISTICS,
-    DISPLAY_NAMES_EN_TO_HE,
-    ROOM_LABELS_HE_TO_EN,
-    Room,
-)
+try:
+    from backend.geometry.models import (
+        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN, Room,
+    )
+except ModuleNotFoundError:
+    from geometry.models import (
+        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN, Room,
+    )
 
 logger = logging.getLogger(__name__)
 
