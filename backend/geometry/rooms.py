@@ -21,11 +21,13 @@ from shapely.ops import polygonize
 
 try:
     from backend.geometry.models import (
-        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN, Room,
+        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN,
+        VALID_ROOM_TYPES, MIN_VALID_ROOM_AREA, MAX_NORMAL_ROOM_AREA, Room,
     )
 except ModuleNotFoundError:
     from geometry.models import (
-        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN, Room,
+        AREA_HEURISTICS, DISPLAY_NAMES_EN_TO_HE, ROOM_LABELS_HE_TO_EN,
+        VALID_ROOM_TYPES, MIN_VALID_ROOM_AREA, MAX_NORMAL_ROOM_AREA, Room,
     )
 
 logger = logging.getLogger(__name__)
@@ -316,26 +318,70 @@ def classify_rooms(
         if best_type == "mamad":
             room.is_modifiable = False
 
-    # --- Post-classification sanity checks ---
-    _fix_oversize_balconies(rooms)
+    # --- Post-classification: enforce 10 valid Israeli types ---
+    _delete_artifacts(rooms)
+    _normalize_to_valid_types(rooms)
     _enforce_single_mamad(rooms)
 
     return rooms
 
 
-def _fix_oversize_balconies(rooms: list[Room]) -> None:
-    """Reclassify balconies > 25 sqm as salon (living room)."""
-    MAX_BALCONY_SQM = 25.0
+def _delete_artifacts(rooms: list[Room]) -> None:
+    """Remove rooms below MIN_VALID_ROOM_AREA — they are detection artifacts."""
+    to_remove = [r for r in rooms if r.area_sqm < MIN_VALID_ROOM_AREA]
+    for r in to_remove:
+        rooms.remove(r)
+        logger.info("Deleted artifact room: %.1f sqm", r.area_sqm)
+
+
+def _normalize_to_valid_types(rooms: list[Room]) -> None:
+    """
+    Ensure every room has one of the 10 valid Israeli types.
+
+    Merge rules:
+    - hallway/corridor/entrance → salon (circulation space)
+    - study/laundry → bedroom or utility
+    - balcony → sun_balcony (renamed)
+    - master_bedroom → bedroom
+    - Rooms > 45 sqm flagged for review
+    - Rooms 20-45 sqm with no specific type → salon
+    - Rooms 8-20 sqm with no specific type → bedroom
+    - Rooms 1.5-8 sqm with no specific type → by area heuristic
+    """
     for room in rooms:
-        if room.room_type == "balcony" and room.area_sqm > MAX_BALCONY_SQM:
-            room.room_type = "salon"
-            room.room_type_he = DISPLAY_NAMES_EN_TO_HE.get("salon", "סלון")
-            room.confidence = max(room.confidence - 20, 40)
+        rt = room.room_type
+
+        # Map deprecated types to valid ones
+        if rt in ('hallway', 'corridor', 'entrance'):
+            room.room_type = 'salon'
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE['salon']
             room.needs_review = True
-            logger.info(
-                "Reclassified oversize balcony (%.1f sqm) as salon",
-                room.area_sqm,
-            )
+        elif rt in ('study', 'laundry'):
+            room.room_type = 'bedroom' if room.area_sqm >= 8 else 'utility'
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE[room.room_type]
+        elif rt == 'master_bedroom':
+            room.room_type = 'bedroom'
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE['bedroom']
+        elif rt == 'balcony':
+            room.room_type = 'sun_balcony'
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE['sun_balcony']
+
+        # Flag oversized rooms
+        if room.area_sqm > MAX_NORMAL_ROOM_AREA:
+            room.needs_review = True
+
+        # If still not a valid type, classify by area
+        if room.room_type not in VALID_ROOM_TYPES:
+            if room.area_sqm >= 20:
+                room.room_type = 'salon'
+            elif room.area_sqm >= 8:
+                room.room_type = 'bedroom'
+            elif room.area_sqm >= 4:
+                room.room_type = 'bathroom'
+            else:
+                room.room_type = 'storage'
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE[room.room_type]
+            room.needs_review = True
 
 
 def _enforce_single_mamad(rooms: list[Room]) -> None:
@@ -344,18 +390,15 @@ def _enforce_single_mamad(rooms: list[Room]) -> None:
     if len(mamads) <= 1:
         return
 
-    # Keep the one with highest confidence, tiebreak by area closest to 12 sqm
-    best = max(mamads, key=lambda r: (r.confidence, -abs(r.area_sqm - 12.0)))
+    best = max(mamads, key=lambda r: (r.confidence, -abs(r.area_sqm - 10.5)))
     for r in mamads:
         if r is not best:
             r.room_type = "bedroom"
-            r.room_type_he = DISPLAY_NAMES_EN_TO_HE.get("bedroom", "חדר שינה")
+            r.room_type_he = DISPLAY_NAMES_EN_TO_HE["bedroom"]
             r.confidence = max(r.confidence - 30, 30)
             r.needs_review = True
             r.is_modifiable = True
-            logger.info(
-                "Demoted duplicate mamad (%.1f sqm) to bedroom", r.area_sqm,
-            )
+            logger.info("Demoted duplicate mamad (%.1f sqm) to bedroom", r.area_sqm)
 
 
 # ---------------------------------------------------------------------------

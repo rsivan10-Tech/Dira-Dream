@@ -19,18 +19,14 @@ export interface Point {
 export type RoomType =
   | 'salon'
   | 'bedroom'
-  | 'master_bedroom'
   | 'kitchen'
+  | 'guest_toilet'
   | 'bathroom'
   | 'mamad'
-  | 'balcony'
+  | 'sun_balcony'
   | 'service_balcony'
   | 'storage'
-  | 'hallway'
-  | 'entrance'
-  | 'corridor'
-  | 'study'
-  | 'laundry'
+  | 'utility'
   | 'unknown';
 
 export interface Room {

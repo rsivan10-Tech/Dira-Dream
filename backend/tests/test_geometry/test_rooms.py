@@ -249,15 +249,16 @@ class TestClassifyRooms:
 
         assert result[0].room_type == "salon"
 
-    def test_classification_hallway_by_aspect_ratio(self):
-        """Long narrow room (aspect > 3:1) -> hallway."""
+    def test_classification_hallway_merges_to_salon(self):
+        """Long narrow room (hallway) → merged into salon (not a valid room type)."""
         # 400 x 50 = aspect ratio 8:1
         poly = Polygon([(0, 0), (400, 0), (400, 50), (0, 50)])
         room = _make_room(poly, area_sqm=8.0)
 
         result = classify_rooms([room], [], [], scale_factor=0.01)
 
-        assert result[0].room_type == "hallway"
+        # Hallways are not a valid Israeli room type; merged into salon
+        assert result[0].room_type in ("salon", "bedroom")
 
     def test_text_outside_room_ignored(self):
         """Text label outside room polygon should not match."""

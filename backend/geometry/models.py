@@ -17,64 +17,87 @@ from shapely.geometry import Polygon
 # Hebrew room label mappings
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 10 valid Israeli apartment room types
+# ---------------------------------------------------------------------------
+
 ROOM_LABELS_HE_TO_EN = {
-    # Primary labels
+    # Primary labels → canonical type
     'סלון': 'salon',
+    'חדר דיור': 'salon',
+    'סלון / חדר דיור': 'salon',
+    'פינת אוכל': 'salon',            # dining area → part of salon
     'חדר שינה': 'bedroom',
-    'חדר שינה הורים': 'master_bedroom',
+    'חדר שינה הורים': 'bedroom',     # master = bedroom (no separate type)
     'חדר ילדים': 'bedroom',
+    'חדר עבודה': 'bedroom',          # study → bedroom in Israeli counting
     'מטבח': 'kitchen',
-    'שירותים': 'bathroom',
+    'מטבחון': 'kitchen',
+    'שירותים': 'guest_toilet',
+    'שירותי אורחים': 'guest_toilet',
     'אמבטיה': 'bathroom',
+    'חדר רחצה': 'bathroom',
     'מקלחת': 'bathroom',
     'ממ"ד': 'mamad',
-    'מרפסת': 'balcony',
+    'מרפסת': 'sun_balcony',
+    'מרפסת שמש': 'sun_balcony',
     'מרפסת שירות': 'service_balcony',
+    'מרפסת כביסה': 'service_balcony',
     'מחסן': 'storage',
-    'מסדרון': 'hallway',
-    'כניסה': 'entrance',
-    'פרוזדור': 'corridor',
-    'חדר עבודה': 'study',
-    'חדר כביסה': 'laundry',
+    'חדר שירות': 'utility',
+    'חדר כביסה': 'utility',
+    # Merge targets: hallway/entrance/corridor → salon (circulation)
+    'מסדרון': 'salon',
+    'כניסה': 'salon',
+    'פרוזדור': 'salon',
     # Abbreviations
     'ח. שינה': 'bedroom',
     'ח. רחצה': 'bathroom',
-    'ח. עבודה': 'study',
+    'ח. עבודה': 'bedroom',
     'חד. שינה': 'bedroom',
-    'מרפ.': 'balcony',
-    'שרות': 'bathroom',
+    'מרפ.': 'sun_balcony',
+    'שרות': 'guest_toilet',
+    'ח. שירות': 'utility',
 }
 
 DISPLAY_NAMES_EN_TO_HE = {
-    'salon': 'סלון',
+    'salon': 'סלון / חדר דיור',
     'bedroom': 'חדר שינה',
-    'master_bedroom': 'חדר שינה הורים',
     'kitchen': 'מטבח',
-    'bathroom': 'חדר רחצה',
+    'guest_toilet': 'שירותי אורחים',
+    'bathroom': 'אמבטיה',
     'mamad': 'ממ"ד',
-    'balcony': 'מרפסת',
+    'sun_balcony': 'מרפסת שמש',
     'service_balcony': 'מרפסת שירות',
     'storage': 'מחסן',
-    'hallway': 'מסדרון',
-    'entrance': 'כניסה',
-    'corridor': 'פרוזדור',
-    'study': 'חדר עבודה',
-    'laundry': 'חדר כביסה',
+    'utility': 'חדר שירות',
     'unknown': 'חדר',
 }
 
-# Area heuristics for Strategy C classification (sqm)
-AREA_HEURISTICS = {
-    'bathroom':  {'min': 3.0, 'max': 12.0, 'typical': 5.0},
-    'bedroom':   {'min': 8.0, 'max': 25.0, 'typical': 12.0},
-    'salon':     {'min': 18.0, 'max': 50.0, 'typical': 25.0},
-    'kitchen':   {'min': 6.0, 'max': 20.0, 'typical': 10.0},
-    'mamad':     {'min': 9.0, 'max': 15.0, 'typical': 12.0},
-    'storage':   {'min': 1.0, 'max': 4.0, 'typical': 2.0},
-    'hallway':   {'min': 2.0, 'max': 15.0, 'typical': 6.0},
-    'balcony':   {'min': 3.0, 'max': 25.0, 'typical': 10.0},
-    'entrance':  {'min': 2.0, 'max': 6.0, 'typical': 3.0},
+# The 10 valid types (anything else is an artifact to merge/delete)
+VALID_ROOM_TYPES = {
+    'salon', 'bedroom', 'kitchen', 'guest_toilet', 'bathroom',
+    'mamad', 'sun_balcony', 'service_balcony', 'storage', 'utility',
 }
+
+# Area heuristics for classification (sqm)
+AREA_HEURISTICS = {
+    'guest_toilet': {'min': 1.5, 'max': 4.0, 'typical': 3.0},
+    'utility':      {'min': 1.5, 'max': 5.0, 'typical': 3.0},
+    'storage':      {'min': 1.5, 'max': 4.0, 'typical': 2.5},
+    'bathroom':     {'min': 4.0, 'max': 8.0, 'typical': 5.5},
+    'service_balcony': {'min': 3.0, 'max': 8.0, 'typical': 5.0},
+    'kitchen':      {'min': 6.0, 'max': 15.0, 'typical': 10.0},
+    'bedroom':      {'min': 8.0, 'max': 15.0, 'typical': 12.0},
+    'mamad':        {'min': 9.0, 'max': 12.0, 'typical': 10.0},
+    'sun_balcony':  {'min': 8.0, 'max': 50.0, 'typical': 12.0},
+    'salon':        {'min': 20.0, 'max': 45.0, 'typical': 30.0},
+}
+
+# Rooms < this are artifacts — delete
+MIN_VALID_ROOM_AREA = 1.5  # sqm
+# Rooms > this need review — likely merged rooms
+MAX_NORMAL_ROOM_AREA = 45.0  # sqm
 
 # Structural disclaimer (mandatory per structural-rules.md)
 STRUCTURAL_DISCLAIMER = (

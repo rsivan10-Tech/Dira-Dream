@@ -39,18 +39,14 @@ const WALL_WIDTH_MULTIPLIER: Record<WallType, number> = {
 const ROOM_FILLS: Record<RoomType, string> = {
   salon: '#E8F5E9',
   bedroom: '#E3F2FD',
-  master_bedroom: '#E3F2FD',
   kitchen: '#FFF3E0',
+  guest_toilet: '#E0F7FA',
   bathroom: '#E0F7FA',
   mamad: '#FFEBEE',
-  balcony: '#F1F8E9',
+  sun_balcony: '#F1F8E9',
   service_balcony: '#F1F8E9',
   storage: '#EFEBE9',
-  hallway: '#F5F5F5',
-  entrance: '#FFF8E1',
-  corridor: '#F5F5F5',
-  study: '#EDE7F6',
-  laundry: '#F3E5F5',
+  utility: '#F3E5F5',
   unknown: '#F5F5F5',
 };
 
@@ -359,19 +355,31 @@ function Sidebar({
   const fmt = (id: string) => intl.formatMessage({ id });
 
   if (!selection) {
-    // Overview stats
-    const totalArea = data.rooms.reduce((sum, r) => sum + r.area_sqm, 0);
+    // Overview stats — split interior vs balcony per Israeli standard
+    const balconyTypes = new Set(['sun_balcony', 'service_balcony']);
+    const interiorArea = data.rooms
+      .filter((r) => !balconyTypes.has(r.type))
+      .reduce((sum, r) => sum + r.area_sqm, 0);
+    const balconyArea = data.rooms
+      .filter((r) => balconyTypes.has(r.type))
+      .reduce((sum, r) => sum + r.area_sqm, 0);
     const stated = data.stated_area_sqm;
-    const deviationPct = stated && totalArea > 0
-      ? Math.abs(totalArea - stated) / stated * 100
+    const deviationPct = stated && interiorArea > 0
+      ? Math.abs(interiorArea - stated) / stated * 100
       : null;
 
     return (
       <div className="fp-sidebar-section">
         <h3>{fmt('sidebar.overview')}</h3>
         <dl>
-          <dt>{fmt('sidebar.calculatedArea')}</dt>
-          <dd>{totalArea.toFixed(1)} {fmt('common.sqm')}</dd>
+          <dt>{fmt('sidebar.interiorArea')}</dt>
+          <dd>{interiorArea.toFixed(1)} {fmt('common.sqm')}</dd>
+          {balconyArea > 0 && (
+            <>
+              <dt>{fmt('sidebar.balconyArea')}</dt>
+              <dd>{balconyArea.toFixed(1)} {fmt('common.sqm')}</dd>
+            </>
+          )}
           {stated != null && (
             <>
               <dt>{fmt('sidebar.statedArea')}</dt>
