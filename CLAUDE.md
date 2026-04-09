@@ -33,6 +33,7 @@ Mamad: thickest walls, 9-15sqm, NEVER modifiable | Crop kartisiyyah first
 
 ## Working Parameters
 SNAP_TOLERANCE: 3.0 | COLLINEAR_ANGLE: 2.0 | EXTEND_TOLERANCE: 10.0 | MIN_ROOM_AREA: 1.0
+WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 values in sample-01.
 
 ## Architecture Decisions
 - Monorepo: project root is the repo root (backend/, frontend/, agents/, docs/)
@@ -41,10 +42,11 @@ SNAP_TOLERANCE: 3.0 | COLLINEAR_ANGLE: 2.0 | EXTEND_TOLERANCE: 10.0 | MIN_ROOM_A
 - Planning docs in /docs/plan/*.docx — human reference only, never read by Claude
 - CLAUDE.md at repo root — Claude Code reads it automatically
 - Local Python is 3.9.6 — will need Docker or pyenv for Python 3.12 requirement
+- [2026-04-09] Wall classification must use relative stroke width clustering, not hardcoded thresholds. Real Israeli PDFs have much thinner lines than expected.
 
 ## Known Edge Cases
-- Real PDFs max stroke width 0.72–2.76pt — no sample reaches mamad range (3.0–5.0pt). Wall classification must use relative histogram thresholds, not absolute ranges.
-- crop_legend ineffective when thick segments span full page (Samples 5, 9). Needs fallback strategy (spatial clustering or legend border detection) in future sprint.
+- [2026-04-09] Stroke widths in real Israeli PDFs are 0.1-1.1pt, not the 3.0-5.0pt assumed in conventions doc. Must use RELATIVE thresholds from histogram peaks, not absolute values. Status: open.
+- [2026-04-09] crop_legend fails when thick segments span full page width. Need fallback strategy (e.g., text density detection or user-drawn crop rectangle). Status: open, deferred to Sprint 4 fallback UI.
 
 ## Test PDF Inventory
 (track: file, source, rooms, issues, status)
