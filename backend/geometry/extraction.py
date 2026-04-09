@@ -3,11 +3,14 @@ PDF vector extraction for Israeli residential floor plans.
 
 Agent: VG (Vector/Geometry Specialist)
 Phase 1, Sprint 1 — raw extraction, legend cropping, stroke histogram.
+Sprint 4 — pre-crop metadata extraction (scale, area annotations, fixture labels).
 """
 
 from __future__ import annotations
 
+import logging
 import math
+import re
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -16,6 +19,8 @@ from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
 from shapely.geometry import LineString, Point
 from shapely.ops import polygonize, unary_union
+
+logger = logging.getLogger(__name__)
 
 
 # --- Working parameters (configurable, never hardcoded per VG rule #2) ---
@@ -163,6 +168,188 @@ def extract_vectors(pdf_path: str, page_num: int = 0) -> dict:
         "texts": texts,
         "page_size": (page_width, page_height),
         "page_num": page_num,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pre-crop metadata extraction
+# ---------------------------------------------------------------------------
+
+# Scale notation patterns: "1:50", "1:100", "קנ״מ 1:50", "קנה מידה 1:50"
+_SCALE_PATTERN = re.compile(r'1\s*:\s*(50|100|200|25|75|150)')
+# Area patterns: digits (with optional decimal) followed by sqm unit
+_AREA_SQM_PATTERN = re.compile(
+    r'(\d+(?:\.\d+)?)\s*(?:מ"ר|מ״ר|m²|sqm|מ\.ר\.)',
+)
+# Fixture / room label keywords in Hebrew
+_FIXTURE_LABELS = {
+    'סלון', 'חדר שינה', 'חדר שינה הורים', 'חדר ילדים',
+    'מטבח', 'שירותים', 'אמבטיה', 'מקלחת', 'ממ"ד', 'ממ״ד',
+    'מרפסת', 'מרפסת שירות', 'מחסן', 'מסדרון', 'כניסה',
+    'פרוזדור', 'חדר עבודה', 'חדר כביסה',
+    # Abbreviations
+    'ח. שינה', 'ח. רחצה', 'ח. עבודה', 'חד. שינה', 'מרפ.',
+    # Fixtures
+    'כיור', 'אמבט', 'מקלחון', 'אסלה', 'כיריים', 'תנור',
+    'מכונת כביסה', 'מייבש', 'מדיח',
+}
+# Total area keywords: "שטח דירה", "שטח עיקרי", "שטח כולל"
+_TOTAL_AREA_CONTEXT = re.compile(
+    r'(?:שטח\s*(?:דירה|עיקרי|כולל|נטו|ברוטו))',
+)
+# Balcony area keywords
+_BALCONY_AREA_CONTEXT = re.compile(
+    r'(?:שטח\s*(?:מרפסת|מרפסות))',
+)
+
+
+def detect_scale_from_text(texts: list[dict]) -> dict:
+    """
+    Search ALL text annotations for scale notation before cropping.
+
+    Looks for patterns like "1:50", "1:100", "קנ״מ 1:50".
+
+    Returns
+    -------
+    dict
+        {scale_notation: str | None, scale_value: int | None}
+        scale_value is the denominator (50, 100, etc.)
+    """
+    for t in texts:
+        content = t["content"]
+        match = _SCALE_PATTERN.search(content)
+        if match:
+            denominator = int(match.group(1))
+            notation = f"1:{denominator}"
+            logger.info("Scale detected from text: %s (source: %r)", notation, content)
+            return {"scale_notation": notation, "scale_value": denominator}
+
+    return {"scale_notation": None, "scale_value": None}
+
+
+def detect_area_annotations(texts: list[dict]) -> dict:
+    """
+    Search ALL text annotations for area values (sqm) before cropping.
+
+    Identifies total apartment area and balcony area from contextual text.
+    Also collects all standalone area values found on the page.
+
+    Returns
+    -------
+    dict
+        {total_area_sqm: float | None, balcony_area_sqm: float | None,
+         area_values: list[{value: float, context: str, bbox: tuple}]}
+    """
+    total_area: float | None = None
+    balcony_area: float | None = None
+    area_values: list[dict] = []
+
+    # First pass: collect all area values with their textual context
+    for i, t in enumerate(texts):
+        content = t["content"]
+        match = _AREA_SQM_PATTERN.search(content)
+        if not match:
+            continue
+
+        value = float(match.group(1))
+        area_values.append({
+            "value": value,
+            "context": content,
+            "bbox": t["bbox"],
+        })
+
+    # Second pass: look for contextual keywords near area values.
+    # Check current text first; only fall back to adjacent spans if no
+    # context keyword is found in the current span itself.
+    for i, t in enumerate(texts):
+        content = t["content"]
+
+        area_match = _AREA_SQM_PATTERN.search(content)
+        if not area_match:
+            continue
+
+        value = float(area_match.group(1))
+
+        # Priority 1: context keyword in the SAME text span
+        has_total_ctx = _TOTAL_AREA_CONTEXT.search(content)
+        has_balcony_ctx = _BALCONY_AREA_CONTEXT.search(content)
+
+        if not has_total_ctx and not has_balcony_ctx:
+            # Priority 2: context keyword in an adjacent span only
+            prev = texts[i - 1]["content"] if i > 0 else ""
+            nxt = texts[i + 1]["content"] if i < len(texts) - 1 else ""
+            has_total_ctx = _TOTAL_AREA_CONTEXT.search(prev) or _TOTAL_AREA_CONTEXT.search(nxt)
+            has_balcony_ctx = _BALCONY_AREA_CONTEXT.search(prev) or _BALCONY_AREA_CONTEXT.search(nxt)
+
+        if has_total_ctx and total_area is None:
+            total_area = value
+            logger.info("Total area detected: %.1f sqm (source: %r)", value, content)
+
+        if has_balcony_ctx and balcony_area is None:
+            balcony_area = value
+            logger.info("Balcony area detected: %.1f sqm (source: %r)", value, content)
+
+    return {
+        "total_area_sqm": total_area,
+        "balcony_area_sqm": balcony_area,
+        "area_values": area_values,
+    }
+
+
+def detect_fixture_labels(texts: list[dict]) -> list[dict]:
+    """
+    Find all fixture and room labels on the page before cropping.
+
+    Returns
+    -------
+    list[dict]
+        [{label: str, bbox: tuple, font_size: float}, ...]
+    """
+    found: list[dict] = []
+
+    for t in texts:
+        content = t["content"].strip()
+        if not content:
+            continue
+
+        # Exact match against known fixture/room labels
+        for label in _FIXTURE_LABELS:
+            if label in content:
+                found.append({
+                    "label": label,
+                    "bbox": t["bbox"],
+                    "font_size": t["font_size"],
+                })
+                break
+
+    logger.info("Fixture labels found: %d", len(found))
+    return found
+
+
+def extract_metadata(texts: list[dict]) -> dict:
+    """
+    Run all pre-crop metadata extraction on the full text set.
+
+    Called by the pipeline BEFORE crop_legend() so that legend-area text
+    (scale notation, total area, balcony area, fixture labels) is captured
+    before those texts are filtered out.
+
+    Returns
+    -------
+    dict
+        Combined metadata from scale, area, and fixture detection.
+    """
+    scale_info = detect_scale_from_text(texts)
+    area_info = detect_area_annotations(texts)
+    fixture_labels = detect_fixture_labels(texts)
+
+    return {
+        "scale_notation": scale_info["scale_notation"],
+        "scale_value": scale_info["scale_value"],
+        "total_area_sqm": area_info["total_area_sqm"],
+        "balcony_area_sqm": area_info["balcony_area_sqm"],
+        "area_values": area_info["area_values"],
+        "fixture_labels": fixture_labels,
     }
 
 

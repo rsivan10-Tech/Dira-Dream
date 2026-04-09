@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from geometry.extraction import (
     compute_stroke_histogram,
     crop_legend,
+    extract_metadata,
     extract_vectors,
 )
 
@@ -63,12 +64,34 @@ class StrokeHistogramResponse(BaseModel):
     suggested_thresholds: list[float] = Field(default_factory=list)
 
 
+class AreaValueResponse(BaseModel):
+    value: float
+    context: str
+    bbox: list[float]
+
+
+class FixtureLabelResponse(BaseModel):
+    label: str
+    bbox: list[float]
+    font_size: float
+
+
+class MetadataResponse(BaseModel):
+    scale_notation: Optional[str] = None
+    scale_value: Optional[int] = None
+    total_area_sqm: Optional[float] = None
+    balcony_area_sqm: Optional[float] = None
+    area_values: list[AreaValueResponse] = Field(default_factory=list)
+    fixture_labels: list[FixtureLabelResponse] = Field(default_factory=list)
+
+
 class ExtractResponse(BaseModel):
     segments: list[SegmentResponse]
     texts: list[TextResponse]
     page_size: PageSizeResponse
     histogram: StrokeHistogramResponse
     crop_report: CropReportResponse
+    metadata: MetadataResponse
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +125,9 @@ async def extract_pdf(file: UploadFile):
             content = await file.read()
             tmp.write(content)
 
-        # Extract → crop → histogram
+        # Extract → metadata (before crop!) → crop → histogram
         raw = extract_vectors(tmp_path)
+        pre_crop_metadata = extract_metadata(raw["texts"])
         cropped = crop_legend(raw)
         histogram = compute_stroke_histogram(cropped["segments"])
 
@@ -140,6 +164,30 @@ async def extract_pdf(file: UploadFile):
             crop_bbox=list(crop_bbox) if crop_bbox else None,
         )
 
+        # Serialize metadata
+        metadata = MetadataResponse(
+            scale_notation=pre_crop_metadata["scale_notation"],
+            scale_value=pre_crop_metadata["scale_value"],
+            total_area_sqm=pre_crop_metadata["total_area_sqm"],
+            balcony_area_sqm=pre_crop_metadata["balcony_area_sqm"],
+            area_values=[
+                AreaValueResponse(
+                    value=av["value"],
+                    context=av["context"],
+                    bbox=list(av["bbox"]),
+                )
+                for av in pre_crop_metadata["area_values"]
+            ],
+            fixture_labels=[
+                FixtureLabelResponse(
+                    label=fl["label"],
+                    bbox=list(fl["bbox"]),
+                    font_size=fl["font_size"],
+                )
+                for fl in pre_crop_metadata["fixture_labels"]
+            ],
+        )
+
         return ExtractResponse(
             segments=segments,
             texts=texts,
@@ -149,6 +197,7 @@ async def extract_pdf(file: UploadFile):
             ),
             histogram=StrokeHistogramResponse(**histogram),
             crop_report=crop_report,
+            metadata=metadata,
         )
 
     except ValueError as e:

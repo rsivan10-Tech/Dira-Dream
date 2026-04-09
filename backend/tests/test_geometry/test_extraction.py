@@ -194,3 +194,161 @@ class TestStrokeHistogram:
         for i in range(len(result["suggested_thresholds"])):
             assert result["suggested_thresholds"][i] > result["peaks"][i]
             assert result["suggested_thresholds"][i] < result["peaks"][i + 1]
+
+
+# ---------------------------------------------------------------------------
+# Tests for pre-crop metadata extraction
+# ---------------------------------------------------------------------------
+
+
+class TestDetectScaleFromText:
+
+    def test_detects_1_50_scale(self):
+        from backend.geometry.extraction import detect_scale_from_text
+
+        texts = [
+            {"content": "some text", "bbox": (0, 0, 50, 10), "font_size": 10},
+            {"content": "קנ״מ 1:50", "bbox": (0, 0, 50, 10), "font_size": 8},
+        ]
+        result = detect_scale_from_text(texts)
+        assert result["scale_notation"] == "1:50"
+        assert result["scale_value"] == 50
+
+    def test_detects_1_100_scale(self):
+        from backend.geometry.extraction import detect_scale_from_text
+
+        texts = [
+            {"content": "1:100", "bbox": (0, 0, 50, 10), "font_size": 8},
+        ]
+        result = detect_scale_from_text(texts)
+        assert result["scale_notation"] == "1:100"
+        assert result["scale_value"] == 100
+
+    def test_no_scale_returns_none(self):
+        from backend.geometry.extraction import detect_scale_from_text
+
+        texts = [
+            {"content": "סלון", "bbox": (0, 0, 50, 10), "font_size": 10},
+        ]
+        result = detect_scale_from_text(texts)
+        assert result["scale_notation"] is None
+        assert result["scale_value"] is None
+
+    def test_detects_scale_with_spaces(self):
+        from backend.geometry.extraction import detect_scale_from_text
+
+        texts = [
+            {"content": "1 : 50", "bbox": (0, 0, 50, 10), "font_size": 8},
+        ]
+        result = detect_scale_from_text(texts)
+        assert result["scale_notation"] == "1:50"
+
+
+class TestDetectAreaAnnotations:
+
+    def test_detects_total_area(self):
+        from backend.geometry.extraction import detect_area_annotations
+
+        texts = [
+            {"content": 'שטח דירה 95.5 מ"ר', "bbox": (0, 0, 100, 10), "font_size": 10},
+        ]
+        result = detect_area_annotations(texts)
+        assert result["total_area_sqm"] == 95.5
+        assert len(result["area_values"]) == 1
+
+    def test_detects_balcony_area(self):
+        from backend.geometry.extraction import detect_area_annotations
+
+        texts = [
+            {"content": 'שטח מרפסת 12.0 מ"ר', "bbox": (0, 0, 100, 10), "font_size": 10},
+        ]
+        result = detect_area_annotations(texts)
+        assert result["balcony_area_sqm"] == 12.0
+
+    def test_detects_both_areas(self):
+        from backend.geometry.extraction import detect_area_annotations
+
+        texts = [
+            {"content": 'שטח דירה 95.5 מ"ר', "bbox": (0, 0, 100, 10), "font_size": 10},
+            {"content": 'שטח מרפסת 12.0 מ"ר', "bbox": (0, 20, 100, 30), "font_size": 10},
+            {"content": 'חדר שינה 14.2 מ"ר', "bbox": (100, 100, 150, 110), "font_size": 10},
+        ]
+        result = detect_area_annotations(texts)
+        assert result["total_area_sqm"] == 95.5
+        assert result["balcony_area_sqm"] == 12.0
+        assert len(result["area_values"]) == 3
+
+    def test_no_area_returns_none(self):
+        from backend.geometry.extraction import detect_area_annotations
+
+        texts = [
+            {"content": "סלון", "bbox": (0, 0, 50, 10), "font_size": 10},
+        ]
+        result = detect_area_annotations(texts)
+        assert result["total_area_sqm"] is None
+        assert result["balcony_area_sqm"] is None
+        assert len(result["area_values"]) == 0
+
+    def test_area_with_m2_unicode(self):
+        from backend.geometry.extraction import detect_area_annotations
+
+        texts = [
+            {"content": "שטח כולל 80.3 m²", "bbox": (0, 0, 100, 10), "font_size": 10},
+        ]
+        result = detect_area_annotations(texts)
+        assert result["total_area_sqm"] == 80.3
+
+
+class TestDetectFixtureLabels:
+
+    def test_finds_room_labels(self):
+        from backend.geometry.extraction import detect_fixture_labels
+
+        texts = [
+            {"content": "סלון", "bbox": (100, 100, 140, 110), "font_size": 12},
+            {"content": "מטבח", "bbox": (200, 200, 240, 210), "font_size": 12},
+            {"content": "random text", "bbox": (300, 300, 350, 310), "font_size": 10},
+        ]
+        result = detect_fixture_labels(texts)
+        assert len(result) == 2
+        labels = {r["label"] for r in result}
+        assert "סלון" in labels
+        assert "מטבח" in labels
+
+    def test_finds_fixture_labels(self):
+        from backend.geometry.extraction import detect_fixture_labels
+
+        texts = [
+            {"content": "כיור", "bbox": (100, 100, 130, 110), "font_size": 8},
+            {"content": "אסלה", "bbox": (150, 150, 180, 160), "font_size": 8},
+        ]
+        result = detect_fixture_labels(texts)
+        assert len(result) == 2
+
+    def test_empty_texts_returns_empty(self):
+        from backend.geometry.extraction import detect_fixture_labels
+
+        result = detect_fixture_labels([])
+        assert result == []
+
+
+class TestExtractMetadata:
+
+    def test_combined_metadata(self):
+        from backend.geometry.extraction import extract_metadata
+
+        texts = [
+            {"content": "1:50", "bbox": (500, 700, 530, 710), "font_size": 8},
+            {"content": 'שטח דירה 95.5 מ"ר', "bbox": (500, 720, 580, 730), "font_size": 10},
+            {"content": 'שטח מרפסת 12.0 מ"ר', "bbox": (500, 740, 580, 750), "font_size": 10},
+            {"content": "סלון", "bbox": (200, 300, 230, 310), "font_size": 12},
+            {"content": "מטבח", "bbox": (100, 200, 130, 210), "font_size": 12},
+        ]
+        result = extract_metadata(texts)
+        assert result["scale_notation"] == "1:50"
+        assert result["scale_value"] == 50
+        assert result["total_area_sqm"] == 95.5
+        assert result["balcony_area_sqm"] == 12.0
+        # 3 fixture labels: "מרפסת" (in balcony area text), "סלון", "מטבח"
+        assert len(result["fixture_labels"]) == 3
+        assert len(result["area_values"]) == 2
