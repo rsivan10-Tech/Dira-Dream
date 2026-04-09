@@ -186,7 +186,9 @@ function App() {
         <DebugViewer />
       ) : mode === '3d' ? (
         floorplanData ? (
-          <FloorplanScene data={floorplanData} />
+          <div style={{ width: '100%', height: 'calc(100vh - 36px)' }}>
+            <FloorplanScene data={floorplanData} />
+          </div>
         ) : (
           <div style={{
             display: 'flex',

@@ -26,6 +26,48 @@ function toCm(pdfPt: number, scaleFactor: number): number {
 }
 
 // ---------------------------------------------------------------------------
+// Page-boundary filter
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter out walls that lie on the outermost axis-aligned bounding rectangle.
+ * These are PDF page borders or legend frames — not apartment walls.
+ *
+ * Algorithm: compute the AABB of all wall endpoints, then reject any wall
+ * whose BOTH endpoints sit on the bbox edge (within tolerance).
+ */
+export function filterPageBoundary(walls: WallData[], toleranceFraction = 0.01): WallData[] {
+  if (walls.length === 0) return walls;
+
+  // Compute AABB in PDF-point space (pre-transform)
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const w of walls) {
+    minX = Math.min(minX, w.start.x, w.end.x);
+    maxX = Math.max(maxX, w.start.x, w.end.x);
+    minY = Math.min(minY, w.start.y, w.end.y);
+    maxY = Math.max(maxY, w.start.y, w.end.y);
+  }
+
+  const rangeX = maxX - minX;
+  const rangeY = maxY - minY;
+  if (rangeX === 0 || rangeY === 0) return walls;
+
+  // Tolerance: fraction of the total range
+  const tolX = rangeX * toleranceFraction;
+  const tolY = rangeY * toleranceFraction;
+
+  function onEdge(x: number, y: number): boolean {
+    const onLeft = Math.abs(x - minX) <= tolX;
+    const onRight = Math.abs(x - maxX) <= tolX;
+    const onTop = Math.abs(y - minY) <= tolY;
+    const onBottom = Math.abs(y - maxY) <= tolY;
+    return onLeft || onRight || onTop || onBottom;
+  }
+
+  return walls.filter((w) => !(onEdge(w.start.x, w.start.y) && onEdge(w.end.x, w.end.y)));
+}
+
+// ---------------------------------------------------------------------------
 // WallMesh
 // ---------------------------------------------------------------------------
 
@@ -163,6 +205,60 @@ export function CeilingMesh({ room, scaleFactor }: RoomMeshProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Bounding-box + camera helpers
+// ---------------------------------------------------------------------------
+
+interface SceneLayout {
+  filteredWalls: WallData[];
+  center: THREE.Vector3;
+  cameraPos: THREE.Vector3;
+}
+
+/** Compute filtered walls, centroid, and auto-fit camera position. */
+function computeLayout(data: FloorplanData): SceneLayout {
+  const filteredWalls = filterPageBoundary(data.walls);
+
+  const walls = filteredWalls.length > 0 ? filteredWalls : data.walls;
+
+  if (walls.length === 0) {
+    return {
+      filteredWalls,
+      center: new THREE.Vector3(0, CEILING_HEIGHT_M / 2, 0),
+      cameraPos: new THREE.Vector3(0, 15, 10),
+    };
+  }
+
+  // Bounding box in Three.js space
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const w of walls) {
+    const a = pdfToThree(toCm(w.start.x, data.scale_factor), toCm(w.start.y, data.scale_factor));
+    const b = pdfToThree(toCm(w.end.x, data.scale_factor), toCm(w.end.y, data.scale_factor));
+    minX = Math.min(minX, a.x, b.x);
+    maxX = Math.max(maxX, a.x, b.x);
+    minZ = Math.min(minZ, a.z, b.z);
+    maxZ = Math.max(maxZ, a.z, b.z);
+  }
+
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const center = new THREE.Vector3(cx, CEILING_HEIGHT_M / 2, cz);
+
+  // Auto-fit: camera distance so bbox fills ~70% of vertical FOV
+  const extentX = maxX - minX;
+  const extentZ = maxZ - minZ;
+  const maxExtent = Math.max(extentX, extentZ, 1);
+  const fovRad = (60 * Math.PI) / 180; // 60 degree FOV
+  const fitDistance = (maxExtent / 0.7) / (2 * Math.tan(fovRad / 2));
+
+  // Position above and slightly behind, looking down at ~60° angle
+  const height = fitDistance * 0.8;
+  const pullback = fitDistance * 0.5;
+  const cameraPos = new THREE.Vector3(cx, height, cz + pullback);
+
+  return { filteredWalls, center, cameraPos };
+}
+
+// ---------------------------------------------------------------------------
 // FloorplanScene
 // ---------------------------------------------------------------------------
 
@@ -171,49 +267,33 @@ interface FloorplanSceneProps {
 }
 
 export default function FloorplanScene({ data }: FloorplanSceneProps) {
-  // Compute apartment centroid for camera target
-  const center = useMemo(() => {
-    if (!data.walls.length) return new THREE.Vector3(0, 0, 0);
-
-    let sx = 0;
-    let sz = 0;
-    let n = 0;
-    for (const w of data.walls) {
-      const a = pdfToThree(toCm(w.start.x, data.scale_factor), toCm(w.start.y, data.scale_factor));
-      const b = pdfToThree(toCm(w.end.x, data.scale_factor), toCm(w.end.y, data.scale_factor));
-      sx += a.x + b.x;
-      sz += a.z + b.z;
-      n += 2;
-    }
-    return new THREE.Vector3(sx / n, 0, sz / n);
-  }, [data]);
+  const layout = useMemo(() => computeLayout(data), [data]);
 
   return (
     <Canvas
       camera={{
-        position: [center.x, 15, center.z + 10],
+        position: layout.cameraPos.toArray(),
         fov: 60,
         near: 0.1,
-        far: 200,
+        far: 500,
       }}
       dpr={[1, 2]}
       style={{ width: '100%', height: '100%', background: '#e8e8e8' }}
     >
-      {/* Lighting */}
+      {/* Lighting — positioned relative to apartment center */}
       <ambientLight intensity={0.4} color="#ffffff" />
       <directionalLight
-        position={[center.x + 10, 20, center.z - 10]}
+        position={[layout.center.x + 10, 20, layout.center.z - 10]}
         intensity={0.6}
         color="#ffffff"
       />
-      {/* Secondary fill from opposite side to reduce harsh shadows */}
       <directionalLight
-        position={[center.x - 8, 12, center.z + 8]}
+        position={[layout.center.x - 8, 12, layout.center.z + 8]}
         intensity={0.25}
         color="#f0f0ff"
       />
 
-      <WallGroup walls={data.walls} scaleFactor={data.scale_factor} />
+      <WallGroup walls={layout.filteredWalls} scaleFactor={data.scale_factor} />
 
       <group name="floors">
         {data.rooms.map((r) => (
@@ -228,11 +308,11 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
       </group>
 
       <OrbitControls
-        target={[center.x, CEILING_HEIGHT_M / 2, center.z]}
+        target={layout.center.toArray()}
         enableDamping
         dampingFactor={0.05}
         minDistance={1}
-        maxDistance={30}
+        maxDistance={100}
       />
     </Canvas>
   );
