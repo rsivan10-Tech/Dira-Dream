@@ -51,6 +51,7 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - [2026-04-09] Sample 0 has 15,936 segments — single apartment (Type D, 6 rooms) with large kartisiyyah + neighbor outline on left. Room labels are vector-drawn (0 extractable texts in apartment area).
 - [2026-04-09] Sample 5 is 2 pages (two 4-room variants). Split into Sample 5.0 and 5.1 locally (not in git — PDFs are gitignored).
 - [2026-04-09] isolate_apartment() exists in extraction.py (Shapely polygonize) but is NOT wired into the API pipeline. It's experimental — works on Sample 0 but too aggressive on others. Sprint 4 will replace with manual crop rectangle from user.
+- [2026-04-09] Many Israeli contractor PDFs render room labels as vector paths (letter outlines), not searchable text. get_text() returns 0 texts for these. Room classification will rely on fixture detection and area heuristics (Strategies B and C), not text matching. Some PDFs do have real text (Samples 3, 4 had 351 and 1,140 texts).
 
 ## Test PDF Inventory
 
