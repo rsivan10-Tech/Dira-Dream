@@ -35,9 +35,11 @@ const WALL_TYPES_FOR_3D = new Set(['exterior', 'mamad', 'structural', 'partition
 /**
  * Return only wall segments suitable for 3D extrusion:
  *  1. wall_type must be a known wall type (not 'unknown')
- *  2. Segment midpoint must lie inside the apartment bbox (derived from
- *     room polygons when available, else from classified walls only)
- *  3. Page-boundary walls (both endpoints on outer AABB edge) are excluded
+ *  2. BOTH endpoints must lie inside the apartment bbox + 10% padding
+ *     (bbox derived from room polygons when available — tighter than wall AABB)
+ *
+ * This is a hard spatial crop: anything with even one endpoint outside the
+ * apartment region is discarded, eliminating legend elements and page frames.
  */
 export function getWallsFor3D(data: FloorplanData): WallData[] {
   // Step 1: keep only classified wall types
@@ -72,12 +74,13 @@ export function getWallsFor3D(data: FloorplanData): WallData[] {
   minX -= padX; maxX += padX;
   minY -= padY; maxY += padY;
 
-  // Step 3: keep walls whose midpoint is inside the padded apartment bbox
-  return typed.filter((w) => {
-    const mx = (w.start.x + w.end.x) / 2;
-    const my = (w.start.y + w.end.y) / 2;
-    return mx >= minX && mx <= maxX && my >= minY && my <= maxY;
-  });
+  // Step 3: keep walls where BOTH endpoints are inside the padded bbox
+  return typed.filter((w) =>
+    w.start.x >= minX && w.start.x <= maxX &&
+    w.start.y >= minY && w.start.y <= maxY &&
+    w.end.x >= minX && w.end.x <= maxX &&
+    w.end.y >= minY && w.end.y <= maxY,
+  );
 }
 
 // ---------------------------------------------------------------------------
