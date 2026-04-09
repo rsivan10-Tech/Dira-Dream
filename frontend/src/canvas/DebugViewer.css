@@ -72,7 +72,7 @@
 /* ---- Main area ---- */
 .debug-main {
   display: flex;
-  flex-direction: row-reverse; /* RTL: canvas on right, panel on left */
+  flex-direction: row; /* In RTL context, row already places first-child on right */
   flex: 1;
   min-height: 0;
 }
