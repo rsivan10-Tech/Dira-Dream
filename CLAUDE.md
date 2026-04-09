@@ -59,6 +59,7 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - [2026-04-09] Window detector finds 24 windows on Sample 9 — too many for a small apartment. Parallel-line heuristic is over-sensitive, matching furniture outlines and annotation lines. Needs: restrict to exterior-wall-adjacent segments only, require minimum line thickness. Status: open.
 - [2026-04-09] Signed-area outer-face detection uses global minority sign, which works for a single connected component but discards legitimate rooms in multi-component graphs. Need per-component outer-face detection. Status: open (low priority — resolves itself when graph fragmentation is fixed).
 - [2026-04-09] split_at_intersections can inflate segment count significantly (Sample 0: 10K→17K). This is correct for planar graph construction but means the pre-split healing steps (snap, merge, dedup) must be aggressive enough to reduce count first.
+- [2026-04-09] Dense PDFs (Samples 0/1/6, 10K+ raw segments) produce tiny mesh faces instead of room-sized polygons after split_at_intersections. Largest face ≤2,317 pt² vs 38,564 pt² for a real 3×4m room. Need segment reduction or clustering before splitting. Deferred — will address with user-assist crop in Sprint 4 or pre-processing filter. Status: deferred.
 
 ## Sprint 2 Healing Results (2026-04-09, ARC-validated)
 
@@ -137,24 +138,20 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 
 ## Test PDF Inventory
 
-### Crop works well (use for Sprint 2 testing)
-| # | File | Segments | Texts | Crop % | Status |
-|---|------|----------|-------|--------|--------|
-| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 35.8% | Crops kartisiyyah. Also has neighbor outline (Sprint 4 manual crop). |
-| 6 | build9-J-plan | 7,887 | 123 | 16.2% | Clean crop, legend on right side removed. |
-| 9 | vector sample | 4,673 | 212 | 19.9% | Legend borders removed effectively. |
+### PASS — rooms detected (7/10)
+| # | File | Segments | Rooms | Status |
+|---|------|----------|-------|--------|
+| 2 | תכניות-מכר-דירתי | 7,134 | 5 (2 text) | Multi-page, page 0. |
+| 3 | בניין-2-דירות | 3,406 | 2 | Apartment fills page, no legend. |
+| 4 | לאטי-קדימה | 10,203 | 4 | 67-page PDF, one apartment per page. |
+| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 7 (1 text) | Clean single apartment. |
+| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 7 (1 text) | Light crop, rooms still detected. |
+| 7/8 | build12-A-plan | 4,239 | 3 (1 text) | Duplicates. Apartment+legend merged. |
+| 9 | vector sample | 4,673 | 7 (2 text) | Best result. Mamad found. LC=90.3%. |
 
-### No separation needed (apartment fills page)
-| # | File | Segments | Texts | Crop % | Status |
-|---|------|----------|-------|--------|--------|
-| 3 | בניין-2-דירות | 3,406 | 351 | 0.3% | Apartment fills page, no legend. |
-| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.1% | 67-page PDF, one apartment per page. |
-| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.0% | Clean single apartment. |
-| 7/8 | build12-A-plan | 4,239 | 492 | 0.0% | Duplicates. Apartment+legend merged, no density gap. |
-
-### Needs manual crop fallback (Sprint 4)
-| # | File | Segments | Texts | Crop % | Issue |
-|---|------|----------|-------|--------|-------|
-| 1 | דירה-2-תוכנית | 3,846 | 168 | 8.8% | Legend borders same width as walls, light crop only. |
-| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.0% | Multi-page (7 pages), page 0 no separation. |
-| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 6.9% | Light crop, most legend content remains. |
+### FAIL — graph too dense, needs segment reduction (deferred)
+| # | File | Segments | Healed | LC% | Issue |
+|---|------|----------|--------|-----|-------|
+| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 1,103 | 71.5% | 1K+ wall segs → tiny mesh faces, 0 rooms. |
+| 1 | דירה-2-תוכנית | 3,846 | 226 | 82.7% | High LC% but 0 rooms. Same dense-face issue. |
+| 6 | build9-J-plan | 7,887 | 296 | 81.2% | High LC% but 0 rooms. Same dense-face issue. |
