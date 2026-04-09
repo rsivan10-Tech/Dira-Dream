@@ -1,0 +1,217 @@
+/* DebugViewer — RTL layout: canvas RIGHT (80%), panel LEFT (20%) */
+
+.debug-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ---- Toolbar ---- */
+.debug-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
+  padding-inline: 16px;
+  background: #fff;
+  border-block-end: 1px solid #e0e0e0;
+  min-height: 48px;
+}
+
+.debug-stat {
+  font-size: 0.85rem;
+  color: #666;
+  padding-inline: 8px;
+  border-inline-start: 1px solid #e0e0e0;
+}
+
+.debug-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.debug-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.debug-width-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin-inline-start: auto;
+}
+
+.debug-width-filter label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.debug-width-filter input[type='range'] {
+  width: 100px;
+  cursor: pointer;
+}
+
+.debug-range-value {
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: end;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* ---- Main area ---- */
+.debug-main {
+  display: flex;
+  flex-direction: row-reverse; /* RTL: canvas on right, panel on left */
+  flex: 1;
+  min-height: 0;
+}
+
+.debug-canvas-container {
+  flex: 4; /* ~80% */
+  position: relative;
+  background: #fafafa;
+  overflow: hidden;
+}
+
+.debug-panel {
+  flex: 1; /* ~20% */
+  min-width: 220px;
+  max-width: 300px;
+  background: #fff;
+  border-inline-end: 1px solid #e0e0e0;
+  padding-block: 16px;
+  padding-inline: 16px;
+  overflow-y: auto;
+}
+
+/* ---- Properties panel ---- */
+.debug-properties-empty {
+  color: #999;
+  font-size: 0.9rem;
+  text-align: center;
+  padding-block-start: 40px;
+}
+
+.debug-properties-content h3 {
+  margin-block: 0 12px;
+  font-size: 1rem;
+}
+
+.debug-properties-content dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.debug-properties-content dt {
+  font-weight: var(--font-weight-medium);
+  color: #666;
+}
+
+.debug-properties-content dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-color-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #ccc;
+  vertical-align: middle;
+  margin-inline-end: 6px;
+}
+
+/* ---- Loading overlay ---- */
+.debug-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 10;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.debug-spinner {
+  width: 36px;
+  height: 36px;
+  border: 4px solid #e0e0e0;
+  border-block-start-color: #2196f3;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.debug-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c62828;
+  font-size: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.debug-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 1.1rem;
+}
+
+/* ---- Histogram ---- */
+.debug-histogram {
+  background: #fff;
+  border-block-start: 1px solid #e0e0e0;
+  padding-block: 8px;
+  padding-inline: 16px;
+}
+
+.debug-histogram h3 {
+  margin-block: 0 4px;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.debug-histogram-canvas {
+  width: 100%;
+  height: 120px;
+  display: block;
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  .debug-spinner {
+    animation: none;
+    border-block-start-color: #2196f3;
+    opacity: 0.6;
+  }
+}
