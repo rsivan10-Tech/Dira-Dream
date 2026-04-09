@@ -46,11 +46,10 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 
 ## Known Edge Cases
 - [2026-04-09] Stroke widths in real Israeli PDFs are 0.1-1.1pt, not the 3.0-5.0pt assumed in conventions doc. Must use RELATIVE thresholds from histogram peaks, not absolute values. Status: open.
-- [2026-04-09] crop_legend fails when thick segments span full page width. Need fallback strategy (e.g., text density detection or user-drawn crop rectangle). Status: open, deferred to Sprint 4 fallback UI.
-- [2026-04-09] crop_legend only effective on 2/10 test PDFs (Samples 0, 6). Most have thick segments spanning full page. Fallback needed in Sprint 4.
+- [2026-04-09] crop_legend fails on 8/10 test PDFs — kartisiyyah borders use same stroke width as apartment walls, so width-based bbox covers full page. Kartisiyyah position varies (right, bottom, left) so directional heuristics won't work. Sprint 4 fallback: spatial clustering (densest connected region), text density ratio, or user-assisted crop rectangle.
 - [2026-04-09] Samples 7 and 8 are identical files. Use only one for testing.
-- [2026-04-09] Sample 0 has 15,936 segments — may be a multi-apartment floor plan, not single unit. Verify.
-- [2026-04-09] Sample 5 has only 44 texts but 3,781 segments — unusually low text-to-segment ratio. May need special handling.
+- [2026-04-09] Sample 0 has 15,936 segments — confirmed single apartment (Type D, 6 rooms) with large kartisiyyah.
+- [2026-04-09] Sample 5 is 2 pages (two 4-room variants). Split into Sample 5.0 and 5.1 locally (not in git — PDFs are gitignored).
 
 ## Test PDF Inventory
 | # | File | Segments | Texts | Width Range | Peaks | Crop % | Status |
