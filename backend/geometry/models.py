@@ -39,6 +39,9 @@ ROOM_LABELS_HE_TO_EN = {
     'חדר רחצה': 'bathroom',
     'מקלחת': 'bathroom',
     'ממ"ד': 'mamad',
+    'ממ״ד': 'mamad',                  # Hebrew gershayim ״
+    'ממ\u201dד': 'mamad',             # right double quotation mark "
+    'ממד': 'mamad',                   # no quotes at all
     'מרפסת': 'sun_balcony',
     'מרפסת שמש': 'sun_balcony',
     'מרפסת שירות': 'service_balcony',
@@ -89,7 +92,7 @@ AREA_HEURISTICS = {
     'service_balcony': {'min': 3.0, 'max': 8.0, 'typical': 5.0},
     'kitchen':      {'min': 6.0, 'max': 15.0, 'typical': 10.0},
     'bedroom':      {'min': 8.0, 'max': 15.0, 'typical': 12.0},
-    'mamad':        {'min': 9.0, 'max': 12.0, 'typical': 10.0},
+    'mamad':        {'min': 7.0, 'max': 15.0, 'typical': 10.0},
     'sun_balcony':  {'min': 8.0, 'max': 50.0, 'typical': 12.0},
     'salon':        {'min': 20.0, 'max': 45.0, 'typical': 30.0},
 }

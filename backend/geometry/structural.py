@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 EXTERIOR_DISTANCE_TOLERANCE = 3.0   # PDF points — max distance to envelope
-MAMAD_AREA_MIN = 9.0                # sqm
+MAMAD_AREA_MIN = 7.0                # sqm (relaxed — some mamads are compact)
 MAMAD_AREA_MAX = 15.0               # sqm
-MAMAD_THICKNESS_RATIO = 0.9         # Fraction of max thickness
+MAMAD_THICKNESS_RATIO = 0.8         # Top 20% of wall thickness
 STRUCTURAL_THICKNESS_RATIO = 2.5    # Interior wall is structural if > 2.5x avg
 STRUCTURAL_PERCENTILE = 95          # AND width must be in top 5% of interior walls
 DOOR_WIDTH_MIN_CM = 65.0            # cm — standard Israeli door minimum
@@ -170,7 +170,25 @@ def detect_mamad(
     Room or None
         The mamad room if found, else None.
     """
-    if not segments or not rooms:
+    if not rooms:
+        return None
+
+    # --- Priority 1: respect text-classified mamad from classify_rooms ---
+    text_mamad = next(
+        (r for r in rooms if r.room_type == "mamad" and r.classification_strategy == "text"),
+        None,
+    )
+    if text_mamad is not None:
+        text_mamad.is_modifiable = False
+        text_mamad.confidence = max(text_mamad.confidence, 95.0)
+        logger.info(
+            "Mamad confirmed by text label: %.1f sqm, confidence=%.0f",
+            text_mamad.area_sqm, text_mamad.confidence,
+        )
+        return text_mamad
+
+    # --- Priority 2: wall-thickness heuristic ---
+    if not segments:
         return None
 
     # Find max stroke width
@@ -189,7 +207,12 @@ def detect_mamad(
     # Build LineStrings from mamad-thick segments
     mamad_lines = [LineString([s["start"], s["end"]]) for s in mamad_segs]
 
-    # For each room, check how much of its boundary is covered by thick walls
+    logger.info(
+        "Mamad thickness search: max_width=%.2f, threshold=%.2f, %d thick segments",
+        max_width, threshold, len(mamad_segs),
+    )
+
+    # For each room in area range, check thick-wall coverage
     best_room: Optional[Room] = None
     best_coverage = 0.0
 
@@ -206,6 +229,11 @@ def detect_mamad(
                 covered_length += ml.length
 
         coverage = covered_length / boundary.length if boundary.length > 0 else 0.0
+
+        logger.debug(
+            "  Room %.1f sqm: thick-wall coverage=%.0f%%",
+            room.area_sqm, coverage * 100,
+        )
 
         if coverage > best_coverage:
             best_coverage = coverage
@@ -225,6 +253,7 @@ def detect_mamad(
         )
         return best_room
 
+    logger.info("No mamad found: best coverage=%.0f%%", best_coverage * 100)
     return None
 
 
