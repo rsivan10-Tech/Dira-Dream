@@ -9,3 +9,6 @@ sqlalchemy
 psycopg2-binary
 python-multipart
 pydantic
+pytest
+pytest-cov
+httpx

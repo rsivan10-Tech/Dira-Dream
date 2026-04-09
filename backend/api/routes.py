@@ -1,15 +1,10 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api")
 
 
 class HealthResponse(BaseModel):
-    status: str
-
-
-class UploadResponse(BaseModel):
-    filename: str
     status: str
 
 
@@ -24,15 +19,13 @@ async def health_check():
     return HealthResponse(status="ok")
 
 
-@router.post("/upload-pdf", response_model=UploadResponse)
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(
-            status_code=400,
-            detail=ErrorResponse(
-                error="INVALID_FILE",
-                message_he="יש להעלות קובץ PDF בלבד.",
-                message_en="Please upload a PDF file.",
-            ).model_dump(),
-        )
-    return UploadResponse(filename=file.filename, status="stub")
+@router.post("/upload-pdf", status_code=501)
+async def upload_pdf():
+    raise HTTPException(
+        status_code=501,
+        detail=ErrorResponse(
+            error="NOT_IMPLEMENTED",
+            message_he="העלאת PDF עדיין לא מומשה.",
+            message_en="PDF upload is not yet implemented.",
+        ).model_dump(),
+    )
