@@ -158,3 +158,39 @@ class TestCropLegend:
         assert cropped["crop_report"]["crop_bbox"] is not None
         # Legend segments should be removed
         assert len(cropped["segments"]) < total_before
+
+
+# ---------------------------------------------------------------------------
+# Tests for compute_stroke_histogram
+# ---------------------------------------------------------------------------
+
+class TestStrokeHistogram:
+
+    def test_stroke_histogram_finds_clusters(self):
+        """Three distinct width groups should produce 3 peaks."""
+        import random
+        from backend.geometry.extraction import compute_stroke_histogram
+
+        random.seed(42)
+        segments = []
+        # Simulate realistic width clusters with natural spread:
+        # dimension lines (~0.2), interior walls (~1.0), exterior/mamad (~3.5)
+        for _ in range(40):
+            w = random.gauss(0.2, 0.03)
+            segments.append({"stroke_width": w, "start": (0, 0), "end": (10, 0)})
+        for _ in range(30):
+            w = random.gauss(1.0, 0.1)
+            segments.append({"stroke_width": w, "start": (0, 0), "end": (10, 0)})
+        for _ in range(20):
+            w = random.gauss(3.5, 0.2)
+            segments.append({"stroke_width": w, "start": (0, 0), "end": (10, 0)})
+
+        result = compute_stroke_histogram(segments)
+
+        assert len(result["peaks"]) >= 3
+        assert len(result["suggested_thresholds"]) >= 2
+
+        # Thresholds should be between adjacent peaks
+        for i in range(len(result["suggested_thresholds"])):
+            assert result["suggested_thresholds"][i] > result["peaks"][i]
+            assert result["suggested_thresholds"][i] < result["peaks"][i + 1]

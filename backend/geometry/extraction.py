@@ -11,6 +11,8 @@ import math
 
 import fitz  # PyMuPDF
 import numpy as np
+from scipy.signal import find_peaks
+from scipy.stats import gaussian_kde
 
 
 # --- Working parameters (configurable, never hardcoded per VG rule #2) ---
@@ -235,4 +237,71 @@ def crop_legend(data: dict) -> dict:
             "kept_segments": len(kept_segments),
             "crop_bbox": crop_bbox,
         },
+    }
+
+
+def compute_stroke_histogram(segments: list[dict]) -> dict:
+    """
+    Analyze stroke width distribution to find natural clusters.
+
+    Uses Gaussian KDE to find density peaks, then computes midpoint
+    thresholds between adjacent peaks for wall classification.
+
+    Returns:
+      - widths: sorted unique stroke widths
+      - peaks: detected peak values
+      - suggested_thresholds: midpoints between adjacent peaks
+    """
+    if not segments:
+        return {"widths": [], "peaks": [], "suggested_thresholds": []}
+
+    raw_widths = [s["stroke_width"] for s in segments]
+    # Filter out hairline/zero-width — they're noise, not walls
+    widths = [w for w in raw_widths if w > HAIRLINE_WIDTH]
+
+    if not widths:
+        return {"widths": [], "peaks": [], "suggested_thresholds": []}
+
+    unique_widths = sorted(set(widths))
+
+    # KDE needs variance — if fewer than 3 unique values, return them as peaks
+    if len(unique_widths) < 3:
+        return {
+            "widths": unique_widths,
+            "peaks": unique_widths,
+            "suggested_thresholds": (
+                [(unique_widths[0] + unique_widths[1]) / 2]
+                if len(unique_widths) == 2
+                else []
+            ),
+        }
+
+    arr = np.array(widths)
+    # Use narrow bandwidth — stroke widths cluster tightly (0.2 vs 1.0 vs 3.0)
+    kde = gaussian_kde(arr, bw_method=0.15)
+
+    # Evaluate KDE over a fine grid
+    x_min, x_max = arr.min(), arr.max()
+    margin = (x_max - x_min) * 0.1
+    x_grid = np.linspace(x_min - margin, x_max + margin, 500)
+    density = kde(x_grid)
+
+    # Find peaks in the density curve
+    peak_indices, _ = find_peaks(density)
+
+    if len(peak_indices) == 0:
+        # Fallback: use the mode
+        return {
+            "widths": unique_widths,
+            "peaks": [float(arr.mean())],
+            "suggested_thresholds": [],
+        }
+
+    peaks = sorted(float(x_grid[i]) for i in peak_indices)
+    thresholds = [(peaks[i] + peaks[i + 1]) / 2 for i in range(len(peaks) - 1)]
+
+    return {
+        "widths": unique_widths,
+        "peaks": peaks,
+        "suggested_thresholds": thresholds,
     }
