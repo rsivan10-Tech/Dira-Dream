@@ -43,7 +43,8 @@ SNAP_TOLERANCE: 3.0 | COLLINEAR_ANGLE: 2.0 | EXTEND_TOLERANCE: 10.0 | MIN_ROOM_A
 - Local Python is 3.9.6 — will need Docker or pyenv for Python 3.12 requirement
 
 ## Known Edge Cases
-(append as discovered)
+- Real PDFs max stroke width 0.72–2.76pt — no sample reaches mamad range (3.0–5.0pt). Wall classification must use relative histogram thresholds, not absolute ranges.
+- crop_legend ineffective when thick segments span full page (Samples 5, 9). Needs fallback strategy (spatial clustering or legend border detection) in future sprint.
 
 ## Test PDF Inventory
 (track: file, source, rooms, issues, status)
