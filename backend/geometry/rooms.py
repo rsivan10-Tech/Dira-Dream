@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MIN_ROOM_AREA = 1.0   # sqm — below this, discard as artifact
+DEFAULT_MAX_ROOM_AREA = 60.0  # sqm — above this, discard as outer face / artifact
 DEFAULT_SCALE_FACTOR = 1.0    # PDF points → metres (caller must supply)
 
 # Confidence levels per classification strategy
@@ -54,6 +55,7 @@ def detect_rooms(
     embedding: Optional[nx.PlanarEmbedding],
     scale_factor: float = DEFAULT_SCALE_FACTOR,
     min_room_area: float = DEFAULT_MIN_ROOM_AREA,
+    max_room_area: float = DEFAULT_MAX_ROOM_AREA,
 ) -> tuple[list[Room], dict]:
     """
     Detect rooms as minimal bounded faces of the planar graph.
@@ -69,6 +71,9 @@ def detect_rooms(
         Converts PDF-point lengths to metres.
     min_room_area : float
         Minimum room area in sqm to keep (default 1.0).
+    max_room_area : float
+        Maximum room area in sqm to keep (default 60.0).
+        Faces larger than this are outer-face artifacts.
 
     Returns
     -------
@@ -84,9 +89,10 @@ def detect_rooms(
         polygons = _faces_from_polygonize(G)
         method = "polygonize"
 
-    # Filter: valid, non-empty, above min area
+    # Filter: valid, non-empty, within area range
     rooms: list[Room] = []
     discarded_small = 0
+    discarded_large = 0
     discarded_invalid = 0
     discarded_outer = 0
 
@@ -105,6 +111,10 @@ def detect_rooms(
             discarded_small += 1
             continue
 
+        if area_sqm > max_room_area:
+            discarded_large += 1
+            continue
+
         perimeter_m = poly.length * scale_factor
         centroid_pt = poly.representative_point()
 
@@ -120,15 +130,16 @@ def detect_rooms(
         "faces_found": len(polygons),
         "rooms_kept": len(rooms),
         "discarded_small": discarded_small,
+        "discarded_large": discarded_large,
         "discarded_invalid": discarded_invalid,
         "discarded_outer_face": discarded_outer,
     }
 
     logger.info(
         "Room detection (%s): %d faces -> %d rooms "
-        "(discarded: %d small, %d invalid, %d outer)",
+        "(discarded: %d small, %d large, %d invalid, %d outer)",
         method, len(polygons), len(rooms),
-        discarded_small, discarded_invalid,
+        discarded_small, discarded_large, discarded_invalid,
         report["discarded_outer_face"],
     )
 
