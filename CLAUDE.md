@@ -54,13 +54,14 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 ## Test PDF Inventory
 | # | File | Segments | Texts | Width Range | Peaks | Crop % | Status |
 |---|------|----------|-------|-------------|-------|--------|--------|
-| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 29.4% | Pass |
-| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 0.0% | Pass |
+| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 29.4% | Pass — single apt (Type D, 6 rooms), large kartisiyyah |
+| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 0.0% | Pass — legend borders same width as walls, crop ineffective |
 | 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.10–1.70 | 7 | 0.1% | Pass |
 | 3 | בניין-2-דירות | 3,406 | 351 | 0.10–1.12 | 5 | 4.9% | Pass |
 | 4 | לאטי-קדימה | 10,203 | 1,140 | 0.10–1.15 | 7 | 0.0% | Pass |
-| 5 | 4-Rooms-Newer2 | 3,781 | 44 | 0.10–1.10 | 8 | 0.1% | Pass |
+| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.10–1.10 | 8 | 0.1% | Pass — split from 2-page PDF |
+| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 0.10–1.10 | 8 | — | Pass — split from 2-page PDF |
 | 6 | build9-J-plan | 7,887 | 123 | 0.10–2.76 | 8 | 11.0% | Pass |
 | 7 | build12-A-plan (1) | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 8 |
 | 8 | build12-A-plan | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 7 |
-| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 0.0% | Pass |
+| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 0.0% | Pass — legend borders same width as walls, crop ineffective |
