@@ -6,7 +6,7 @@ Backend: Python 3.12+FastAPI | Frontend: React 18+TS+Vite | 2D: Konva.js
 AI: Claude Opus 4.6 | DB: PostgreSQL+PostGIS | Auth: Supabase
 
 ## Current Phase
-Phase: 1 | Sprint: 0 | Module: project-setup | Branch: main
+Phase: 1 | Sprint: 1 | Module: pdf-extraction | Branch: feature/phase1-pdf-extraction
 
 ## Plan-Execute-Verify (MANDATORY)
 PLAN: state what you build, files, algorithm, edge cases, tests. WAIT for approval.
