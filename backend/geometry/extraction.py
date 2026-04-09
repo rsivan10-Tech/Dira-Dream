@@ -14,6 +14,8 @@ import numpy as np
 from scipy.ndimage import binary_closing, label as ndimage_label
 from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
+from shapely.geometry import LineString, Point
+from shapely.ops import polygonize, unary_union
 
 
 # --- Working parameters (configurable, never hardcoded per VG rule #2) ---
@@ -22,6 +24,9 @@ HAIRLINE_WIDTH = 0.1  # Zero-width strokes treated as hairline
 BEZIER_SUBDIVISIONS = 10  # Points for cubic Bézier approximation
 CROP_PADDING_RATIO = 0.10  # 10% padding around apartment bbox
 THICK_PERCENTILE = 80  # Percentile threshold for "thick" segments
+ISOLATION_MARGIN = 0.30  # Expand seed polygon bbox by 30% each direction
+ISOLATION_PERCENTILE = 90  # Percentile for thick-wall polygonize
+MIN_POLYGON_AREA = 500  # Minimum polygon area to consider (in pt²)
 
 
 def _bezier_point(t: float, p0, p1, p2, p3) -> tuple[float, float]:
@@ -294,6 +299,124 @@ def crop_legend(data: dict) -> dict:
             "crop_bbox": crop_bbox,
         },
     }
+
+
+def isolate_apartment(data: dict) -> dict:
+    """
+    Isolate the target apartment from neighboring apartment outlines.
+
+    Israeli contractor plans often show adjacent unit boundaries for context.
+    This function finds the largest closed polygon formed by thick wall
+    segments, then uses it as a seed to define the apartment boundary.
+
+    Strategy:
+    1. Polygonize thick wall segments (≥90th percentile width).
+    2. Find the polygon with the most interior segments (the main room).
+    3. Expand its bounding box by ISOLATION_MARGIN to capture adjacent rooms.
+    4. Filter segments/texts to the expanded box.
+
+    Skips isolation if no meaningful polygon is found or if the expansion
+    would cover most of the page (no neighboring outline to remove).
+    """
+    segments = data["segments"]
+    texts = data.get("texts", [])
+    page_w, page_h = data["page_size"]
+    original_count = len(segments)
+
+    if original_count < 50:
+        return data
+
+    # --- Find thick wall segments and polygonize ---
+    widths = [s["stroke_width"] for s in segments]
+    w_thresh = float(np.percentile(widths, ISOLATION_PERCENTILE))
+    thick = [s for s in segments if s["stroke_width"] >= w_thresh]
+
+    if len(thick) < 10:
+        return data
+
+    lines = [
+        LineString([(s["start"][0], s["start"][1]), (s["end"][0], s["end"][1])])
+        for s in thick
+    ]
+    merged = unary_union(lines)
+    polys = list(polygonize(merged))
+
+    if not polys:
+        return data
+
+    # --- Find seed: polygon with the most interior segments ---
+    best_poly = None
+    best_inside = 0
+    midpoints = [
+        Point((s["start"][0] + s["end"][0]) / 2, (s["start"][1] + s["end"][1]) / 2)
+        for s in segments
+    ]
+    for poly in polys:
+        if poly.area < MIN_POLYGON_AREA:
+            continue
+        inside = sum(1 for pt in midpoints if poly.contains(pt))
+        if inside > best_inside:
+            best_inside = inside
+            best_poly = poly
+
+    if best_poly is None or best_inside < 20:
+        return data
+
+    # --- Expand seed bounds ---
+    bx0, by0, bx1, by1 = best_poly.bounds
+    seed_w = bx1 - bx0
+    seed_h = by1 - by0
+
+    exp_bbox = (
+        max(0.0, bx0 - seed_w * ISOLATION_MARGIN),
+        max(0.0, by0 - seed_h * ISOLATION_MARGIN),
+        min(page_w, bx1 + seed_w * ISOLATION_MARGIN),
+        min(page_h, by1 + seed_h * ISOLATION_MARGIN),
+    )
+
+    # Skip if expanded bbox covers >90% of the page (no neighbor to remove)
+    exp_area = (exp_bbox[2] - exp_bbox[0]) * (exp_bbox[3] - exp_bbox[1])
+    if exp_area > 0.90 * page_w * page_h:
+        return data
+
+    # --- Filter segments and texts ---
+    kept_segments = [s for s in segments if _bbox_intersects(_seg_bbox(s), exp_bbox)]
+
+    # Safety: don't remove more than 50% of segments
+    if len(kept_segments) < original_count * 0.5:
+        return data
+
+    kept_texts = []
+    for t in texts:
+        bx0t, by0t, bx1t, by1t = t["bbox"]
+        text_bb = (min(bx0t, bx1t), min(by0t, by1t), max(bx0t, bx1t), max(by0t, by1t))
+        if _bbox_intersects(text_bb, exp_bbox):
+            kept_texts.append(t)
+
+    isolation_report = {
+        "seed_bounds": (
+            round(best_poly.bounds[0], 1),
+            round(best_poly.bounds[1], 1),
+            round(best_poly.bounds[2], 1),
+            round(best_poly.bounds[3], 1),
+        ),
+        "seed_area": round(best_poly.area, 1),
+        "seed_interior_segments": best_inside,
+        "expanded_bbox": tuple(round(v, 1) for v in exp_bbox),
+        "original_segments": original_count,
+        "kept_segments": len(kept_segments),
+    }
+
+    result = {
+        **data,
+        "segments": kept_segments,
+        "texts": kept_texts,
+    }
+    # Preserve existing crop_report and add isolation_report
+    if "crop_report" in data:
+        result["crop_report"] = data["crop_report"]
+    result["isolation_report"] = isolation_report
+    return result
 
 
 def compute_stroke_histogram(segments: list[dict]) -> dict:

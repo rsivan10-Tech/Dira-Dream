@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from geometry.extraction import extract_vectors, crop_legend, compute_stroke_histogram
+from geometry.extraction import extract_vectors, crop_legend, isolate_apartment, compute_stroke_histogram
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "test-pdfs")
 
@@ -39,22 +39,30 @@ def run():
             try:
                 raw = extract_vectors(pdf_path, page_num=page_num)
                 cropped = crop_legend(raw)
+                isolated = isolate_apartment(cropped)
                 report = cropped["crop_report"]
 
                 orig = report["original_segments"]
-                kept = report["kept_segments"]
-                crop_pct = ((orig - kept) / orig * 100) if orig > 0 else 0.0
-                bbox = report.get("crop_bbox")
+                after_crop = report["kept_segments"]
+                after_iso = len(isolated["segments"])
+                total_pct = ((orig - after_iso) / orig * 100) if orig > 0 else 0.0
+
+                iso_report = isolated.get("isolation_report")
+                iso_str = ""
+                if iso_report:
+                    iso_str = f" iso:{after_crop}->{after_iso}"
+
+                crop_bbox = report.get("crop_bbox")
                 bbox_str = (
-                    f"({bbox[0]:.0f},{bbox[1]:.0f},{bbox[2]:.0f},{bbox[3]:.0f})"
-                    if bbox else "None"
+                    f"({crop_bbox[0]:.0f},{crop_bbox[1]:.0f},{crop_bbox[2]:.0f},{crop_bbox[3]:.0f})"
+                    if crop_bbox else "None"
                 )
 
                 orig_texts = len(raw.get("texts", []))
-                kept_texts = len(cropped.get("texts", []))
+                kept_texts = len(isolated.get("texts", []))
 
-                print(f"{page_label:<12} {orig:>6} {kept:>6} {crop_pct:>5.1f}% "
-                      f"{orig_texts:>6} {kept_texts:>6} {bbox_str}")
+                print(f"{page_label:<12} {orig:>6} {after_iso:>6} {total_pct:>5.1f}% "
+                      f"{orig_texts:>6} {kept_texts:>6} {bbox_str}{iso_str}")
             except Exception as e:
                 print(f"{page_label:<12} ERROR: {e}")
 

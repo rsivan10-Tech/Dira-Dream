@@ -5,7 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from geometry.extraction import compute_stroke_histogram, crop_legend, extract_vectors
+from geometry.extraction import (
+    compute_stroke_histogram,
+    crop_legend,
+    extract_vectors,
+    isolate_apartment,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -98,10 +103,11 @@ async def extract_pdf(file: UploadFile):
             content = await file.read()
             tmp.write(content)
 
-        # Extract → crop → histogram
+        # Extract → crop → isolate → histogram
         raw = extract_vectors(tmp_path)
         cropped = crop_legend(raw)
-        histogram = compute_stroke_histogram(cropped["segments"])
+        isolated = isolate_apartment(cropped)
+        histogram = compute_stroke_histogram(isolated["segments"])
 
         # Serialize segments
         segments = [
@@ -114,7 +120,7 @@ async def extract_pdf(file: UploadFile):
                 color=list(s["color"]),
                 dash_pattern=str(s["dash_pattern"]) if s["dash_pattern"] else None,
             )
-            for s in cropped["segments"]
+            for s in isolated["segments"]
         ]
 
         # Serialize texts
@@ -125,23 +131,29 @@ async def extract_pdf(file: UploadFile):
                 y=t["bbox"][1],
                 font_size=t["font_size"],
             )
-            for t in cropped["texts"]
+            for t in isolated["texts"]
         ]
 
-        # Crop report
+        # Crop report (reflects full pipeline: crop + isolation)
         crop_bbox = cropped["crop_report"].get("crop_bbox")
+        iso_report = isolated.get("isolation_report")
+        # Use isolation bbox if available, otherwise crop bbox
+        final_bbox = iso_report.get("expanded_bbox") if iso_report else None
+        if final_bbox is None:
+            final_bbox = crop_bbox
+
         crop_report = CropReportResponse(
             original_segments=cropped["crop_report"]["original_segments"],
-            kept_segments=cropped["crop_report"]["kept_segments"],
-            crop_bbox=list(crop_bbox) if crop_bbox else None,
+            kept_segments=len(isolated["segments"]),
+            crop_bbox=list(final_bbox) if final_bbox else None,
         )
 
         return ExtractResponse(
             segments=segments,
             texts=texts,
             page_size=PageSizeResponse(
-                width=cropped["page_size"][0],
-                height=cropped["page_size"][1],
+                width=isolated["page_size"][0],
+                height=isolated["page_size"][1],
             ),
             histogram=StrokeHistogramResponse(**histogram),
             crop_report=crop_report,
