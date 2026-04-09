@@ -6,7 +6,30 @@ Backend: Python 3.12+FastAPI | Frontend: React 18+TS+Vite | 2D: Konva.js
 AI: Claude Opus 4.6 | DB: PostgreSQL+PostGIS | Auth: Supabase
 
 ## Current Phase
-Phase: 1 COMPLETE | Sprint: 4 | Tag: v0.1.0-phase1 | Branch: develop
+Phase: 2 IN PROGRESS | Sprint: 5B | Tag: v0.2.0-sprint5b | Branch: feature/phase2-3d-extrusion
+
+## Sprint 5B Status (2026-04-09)
+
+### What IS Working
+- Mamad shows orange in 3D (page 1) ✓
+- Exterior walls show dark red in 2D (page 2) ✓
+- Floor surfaces rendered ✓
+- Wall extrusion at correct height (2.60m) ✓
+- Page selector works ✓
+- 3D view integrated with view switcher ✓
+- Largest component filter removes most legend noise ✓
+- Opening matching logic implemented (openingUtils.ts)
+- ExtrudeGeometry with Shape holes for walls with openings
+- GlassPane and DoorPanel components wired in
+
+### Open Issues
+1. **No door openings visible in 3D** — holes in walls not cut (matching may not find walls, or ExtrudeGeometry holes not rendering)
+2. **No window openings visible in 3D** — same root cause as doors
+3. **Glass doors (balcony) are solid walls** — not transparent
+4. **Black walls appearing** — unknown wall type defaulting to black instead of a valid color
+5. **Cannot walk through 3D model** — first-person controls not yet implemented (Sprint 6)
+6. **Floating geometry on some PDFs** — page 2 has stairwell elements on the right
+7. **2D still showing too many doors (34) and 13 rooms** — should be ~8-10 rooms
 
 ## Plan-Execute-Verify (MANDATORY)
 PLAN: state what you build, files, algorithm, edge cases, tests. WAIT for approval.
