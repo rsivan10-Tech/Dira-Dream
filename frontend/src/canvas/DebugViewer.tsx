@@ -58,18 +58,30 @@ function segmentLength(seg: Segment): number {
   return Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
 }
 
-function getSegmentColor(
-  width: number,
-  thresholds: number[],
-): string {
-  if (thresholds.length === 0) return '#4a90d9';
+type WidthClass = 'thin' | 'medium' | 'thick';
+
+function classifyWidth(width: number, thresholds: number[]): WidthClass {
+  if (thresholds.length === 0) return 'thin';
   if (thresholds.length === 1) {
-    return width <= thresholds[0] ? '#4a90d9' : '#cc0000';
+    return width <= thresholds[0] ? 'thin' : 'thick';
   }
-  if (width <= thresholds[0]) return '#4a90d9'; // thin = blue
-  if (width <= thresholds[thresholds.length - 1]) return '#2e7d32'; // medium = green
-  return '#cc0000'; // thick = red
+  if (width <= thresholds[0]) return 'thin';
+  if (width <= thresholds[thresholds.length - 1]) return 'medium';
+  return 'thick';
 }
+
+const WIDTH_CLASS_COLORS: Record<WidthClass, string> = {
+  thin: '#4a90d9',    // blue
+  medium: '#2e7d32',  // green
+  thick: '#cc0000',   // red
+};
+
+// Dash patterns so thickness classes are distinguishable without color
+const WIDTH_CLASS_DASH: Record<WidthClass, number[] | undefined> = {
+  thin: undefined,          // solid
+  medium: [8, 4],           // dashed
+  thick: [4, 2, 1, 2],     // dot-dash
+};
 
 // ---------------------------------------------------------------------------
 // Histogram sub-component (plain <canvas>)
@@ -303,6 +315,8 @@ export default function DebugViewer() {
     const formData = new FormData();
     formData.append('file', file);
 
+    const errorFallback = intl.formatMessage({ id: 'common.error' });
+
     try {
       const response = await fetch('http://localhost:8000/api/extract', {
         method: 'POST',
@@ -311,17 +325,17 @@ export default function DebugViewer() {
 
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.detail?.message_he || err.detail?.message_en || 'Upload failed');
+        throw new Error(err.detail?.message_he || err.detail?.message_en || errorFallback);
       }
 
       const result: ExtractResponse = await response.json();
       setData(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה');
+      setError(e instanceof Error ? e.message : errorFallback);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [intl]);
 
   // Zoom handler
   const handleWheel = useCallback(
@@ -517,25 +531,29 @@ export default function DebugViewer() {
 
               {/* Segments layer */}
               <Layer>
-                {visibleSegments.map((seg, i) => (
-                  <Line
-                    key={i}
-                    points={[seg.x1, seg.y1, seg.x2, seg.y2]}
-                    stroke={getSegmentColor(seg.width, thresholds)}
-                    strokeWidth={Math.max(seg.width, 0.5)}
-                    hitStrokeWidth={Math.max(8 / scale, 4)}
-                    onClick={() => setSelectedSegment(seg)}
-                    onTap={() => setSelectedSegment(seg)}
-                    onMouseEnter={(e) => {
-                      const container = e.target.getStage()?.container();
-                      if (container) container.style.cursor = 'pointer';
-                    }}
-                    onMouseLeave={(e) => {
-                      const container = e.target.getStage()?.container();
-                      if (container) container.style.cursor = 'default';
-                    }}
-                  />
-                ))}
+                {visibleSegments.map((seg, i) => {
+                  const cls = classifyWidth(seg.width, thresholds);
+                  return (
+                    <Line
+                      key={i}
+                      points={[seg.x1, seg.y1, seg.x2, seg.y2]}
+                      stroke={WIDTH_CLASS_COLORS[cls]}
+                      strokeWidth={Math.max(seg.width, 0.5)}
+                      dash={WIDTH_CLASS_DASH[cls]}
+                      hitStrokeWidth={Math.max(8 / scale, 4)}
+                      onClick={() => setSelectedSegment(seg)}
+                      onTap={() => setSelectedSegment(seg)}
+                      onMouseEnter={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'pointer';
+                      }}
+                      onMouseLeave={(e) => {
+                        const container = e.target.getStage()?.container();
+                        if (container) container.style.cursor = 'default';
+                      }}
+                    />
+                  );
+                })}
               </Layer>
 
               {/* Selection highlight layer */}
