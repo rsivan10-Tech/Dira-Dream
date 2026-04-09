@@ -28,6 +28,7 @@ export interface AnalyzeResponse {
     id: string; type: string; width_cm: number;
     position: { x: number; y: number }; wall_id: string;
     rooms: string[]; swing_direction?: string;
+    endpoints?: [{ x: number; y: number }, { x: number; y: number }];
   }>;
   texts: Array<{ content: string; x: number; y: number; font_size: number }>;
   confidence: number;
@@ -78,6 +79,7 @@ export function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
     wall_id: o.wall_id,
     rooms: o.rooms,
     swing_direction: o.swing_direction,
+    endpoints: o.endpoints,
   }));
 
   const texts: TextAnnotation[] = (raw.texts ?? []).map((t) => ({

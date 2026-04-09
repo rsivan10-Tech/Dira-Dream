@@ -15,6 +15,12 @@ import type { WallType, RoomType } from '@/types/floorplan';
 /** Israeli standard ceiling height (meters) */
 export const CEILING_HEIGHT_M = 2.60;
 
+/** Opening heights (meters) — Israeli construction standards */
+export const DOOR_HEIGHT_M = 2.10;
+export const WINDOW_HEIGHT_M = 1.20;
+export const WINDOW_SILL_M = 0.90;
+export const GLASS_DOOR_HEIGHT_M = 2.20;
+
 // ---------------------------------------------------------------------------
 // Coordinate transform
 // ---------------------------------------------------------------------------

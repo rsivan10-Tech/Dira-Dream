@@ -15,6 +15,7 @@ import {
   WALL_COLORS,
   FLOOR_COLORS,
 } from './coordinateUtils';
+import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,9 +51,10 @@ export function getWallsFor3D(data: FloorplanData): WallData[] {
 interface WallMeshProps {
   wall: WallData;
   scaleFactor: number;
+  openings?: OpeningOnWall[];
 }
 
-export function WallMesh({ wall, scaleFactor }: WallMeshProps) {
+export function WallMesh({ wall, scaleFactor, openings }: WallMeshProps) {
   const geo = useMemo(() => {
     const s = pdfToThree(toCm(wall.start.x, scaleFactor), toCm(wall.start.y, scaleFactor));
     const e = pdfToThree(toCm(wall.end.x, scaleFactor), toCm(wall.end.y, scaleFactor));
@@ -70,19 +72,67 @@ export function WallMesh({ wall, scaleFactor }: WallMeshProps) {
     return { s, e, length, angle, thickness };
   }, [wall, scaleFactor]);
 
-  if (!geo) return null;
+  const geometry = useMemo(() => {
+    if (!geo) return null;
+
+    // No openings — simple box (more efficient)
+    if (!openings || openings.length === 0) {
+      return new THREE.BoxGeometry(geo.length, CEILING_HEIGHT_M, geo.thickness);
+    }
+
+    // Build wall face with holes for openings
+    const halfLen = geo.length / 2;
+    const shape = new THREE.Shape();
+    shape.moveTo(-halfLen, 0);
+    shape.lineTo(halfLen, 0);
+    shape.lineTo(halfLen, CEILING_HEIGHT_M);
+    shape.lineTo(-halfLen, CEILING_HEIGHT_M);
+    shape.closePath();
+
+    for (const op of openings) {
+      // Convert offset (from wall start) to centered coords
+      const cx = op.offset - halfLen;
+      const left = cx - op.width / 2;
+      const right = cx + op.width / 2;
+      const bottom = op.sillHeight;
+      const top = op.sillHeight + op.height;
+
+      const hole = new THREE.Path();
+      hole.moveTo(left, bottom);
+      hole.lineTo(right, bottom);
+      hole.lineTo(right, top);
+      hole.lineTo(left, top);
+      hole.closePath();
+      shape.holes.push(hole);
+    }
+
+    const extruded = new THREE.ExtrudeGeometry(shape, {
+      depth: geo.thickness,
+      bevelEnabled: false,
+    });
+    // Center on thickness axis so wall midline aligns with position
+    extruded.translate(0, 0, -geo.thickness / 2);
+    return extruded;
+  }, [geo, openings]);
+
+  if (!geo || !geometry) return null;
+
+  // BoxGeometry is centered at origin → position at midpoint, half-height up.
+  // ExtrudeGeometry starts at Y=0 → position at midpoint, Y=0.
+  const hasOpenings = openings && openings.length > 0;
+  const posY = hasOpenings ? 0 : CEILING_HEIGHT_M / 2;
 
   return (
     <mesh
+      geometry={geometry}
       position={[
         (geo.s.x + geo.e.x) / 2,
-        CEILING_HEIGHT_M / 2,
+        posY,
         (geo.s.z + geo.e.z) / 2,
       ]}
       rotation={[0, -geo.angle, 0]}
       userData={{ wallType: wall.wall_type, id: wall.id }}
     >
-      <boxGeometry args={[geo.length, CEILING_HEIGHT_M, geo.thickness]} />
       <meshStandardMaterial
         color={WALL_COLORS[wall.wall_type] ?? WALL_COLORS.unknown}
         roughness={0.8}
@@ -92,15 +142,161 @@ export function WallMesh({ wall, scaleFactor }: WallMeshProps) {
 }
 
 // ---------------------------------------------------------------------------
+// GlassPane — translucent panel for window openings
+// ---------------------------------------------------------------------------
+
+const glassMaterial = new THREE.MeshPhysicalMaterial({
+  color: '#E8F4FD',
+  metalness: 0,
+  roughness: 0.1,
+  transmission: 0.9,
+  thickness: 0.01,
+  ior: 1.5,
+  transparent: true,
+  opacity: 0.3,
+  side: THREE.DoubleSide,
+});
+
+interface GlassPaneProps {
+  opening: OpeningOnWall;
+  wallStart: { x: number; z: number };
+  wallEnd: { x: number; z: number };
+  wallLength: number;
+  wallAngle: number;
+}
+
+function GlassPane({ opening, wallStart, wallEnd, wallLength, wallAngle }: GlassPaneProps) {
+  const position = useMemo(() => {
+    // Interpolate position along wall at opening.offset
+    const t = opening.offset / wallLength;
+    const x = wallStart.x + t * (wallEnd.x - wallStart.x);
+    const z = wallStart.z + t * (wallEnd.z - wallStart.z);
+    const y = opening.sillHeight + opening.height / 2;
+    return [x, y, z] as [number, number, number];
+  }, [opening, wallStart, wallEnd, wallLength]);
+
+  return (
+    <mesh
+      position={position}
+      rotation={[0, -wallAngle, 0]}
+      material={glassMaterial}
+    >
+      <planeGeometry args={[opening.width, opening.height]} />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DoorPanel — thin recessed panel for door openings
+// ---------------------------------------------------------------------------
+
+const doorMaterial = new THREE.MeshStandardMaterial({
+  color: '#8B6914',
+  roughness: 0.6,
+});
+
+function DoorPanel({ opening, wallStart, wallEnd, wallLength, wallAngle }: GlassPaneProps) {
+  const position = useMemo(() => {
+    const t = opening.offset / wallLength;
+    const x = wallStart.x + t * (wallEnd.x - wallStart.x);
+    const z = wallStart.z + t * (wallEnd.z - wallStart.z);
+    const y = opening.height / 2; // doors start at floor
+    return [x, y, z] as [number, number, number];
+  }, [opening, wallStart, wallEnd, wallLength]);
+
+  return (
+    <mesh
+      position={position}
+      rotation={[0, -wallAngle, 0]}
+      material={doorMaterial}
+    >
+      <boxGeometry args={[opening.width - 0.04, opening.height - 0.02, 0.03]} />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // WallGroup — all walls, toggleable as a layer
 // ---------------------------------------------------------------------------
 
-function WallGroup({ walls, scaleFactor }: { walls: WallData[]; scaleFactor: number }) {
+interface WallGroupProps {
+  walls: WallData[];
+  scaleFactor: number;
+  wallOpenings: Map<string, OpeningOnWall[]>;
+}
+
+function WallGroup({ walls, scaleFactor, wallOpenings }: WallGroupProps) {
   return (
     <group name="walls">
-      {walls.map((w) => (
-        <WallMesh key={w.id} wall={w} scaleFactor={scaleFactor} />
-      ))}
+      {walls.map((w) => {
+        const openings = wallOpenings.get(w.id);
+        return (
+          <WallMesh
+            key={w.id}
+            wall={w}
+            scaleFactor={scaleFactor}
+            openings={openings}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OpeningsGroup — glass panes for windows, door panels for doors
+// ---------------------------------------------------------------------------
+
+function OpeningsGroup({
+  walls,
+  scaleFactor,
+  wallOpenings,
+}: WallGroupProps) {
+  const items = useMemo(() => {
+    const result: Array<{
+      opening: OpeningOnWall;
+      wallStart: { x: number; z: number };
+      wallEnd: { x: number; z: number };
+      wallLength: number;
+      wallAngle: number;
+    }> = [];
+
+    for (const wall of walls) {
+      const openings = wallOpenings.get(wall.id);
+      if (!openings || openings.length === 0) continue;
+
+      const s = pdfToThree(toCm(wall.start.x, scaleFactor), toCm(wall.start.y, scaleFactor));
+      const e = pdfToThree(toCm(wall.end.x, scaleFactor), toCm(wall.end.y, scaleFactor));
+      const dx = e.x - s.x;
+      const dz = e.z - s.z;
+      const length = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dz, dx);
+
+      for (const op of openings) {
+        result.push({
+          opening: op,
+          wallStart: s,
+          wallEnd: e,
+          wallLength: length,
+          wallAngle: angle,
+        });
+      }
+    }
+    return result;
+  }, [walls, scaleFactor, wallOpenings]);
+
+  return (
+    <group name="openings">
+      {items.map((item) =>
+        item.opening.type === 'window' ? (
+          <GlassPane key={`glass-${item.opening.id}`} {...item} />
+        ) : item.opening.type === 'door' ? (
+          <DoorPanel key={`door-${item.opening.id}`} {...item} />
+        ) : (
+          // french_door / sliding_door → glass pane (full height, no door panel)
+          <GlassPane key={`glass-${item.opening.id}`} {...item} />
+        ),
+      )}
     </group>
   );
 }
@@ -186,19 +382,28 @@ export function CeilingMesh({ room, scaleFactor }: RoomMeshProps) {
 
 interface SceneLayout {
   filteredWalls: WallData[];
+  wallOpenings: Map<string, OpeningOnWall[]>;
   center: THREE.Vector3;
   cameraPos: THREE.Vector3;
 }
 
-/** Compute filtered walls, centroid, and auto-fit camera position. */
+/** Compute filtered walls, opening matching, centroid, and auto-fit camera position. */
 function computeLayout(data: FloorplanData): SceneLayout {
   const filteredWalls = getWallsFor3D(data);
+
+  // Match openings to walls
+  const wallOpenings = matchOpeningsToWalls(
+    filteredWalls,
+    data.openings,
+    data.scale_factor,
+  );
 
   const walls = filteredWalls.length > 0 ? filteredWalls : data.walls;
 
   if (walls.length === 0) {
     return {
       filteredWalls,
+      wallOpenings,
       center: new THREE.Vector3(0, CEILING_HEIGHT_M / 2, 0),
       cameraPos: new THREE.Vector3(0, 15, 10),
     };
@@ -231,7 +436,7 @@ function computeLayout(data: FloorplanData): SceneLayout {
   const pullback = fitDistance * 0.5;
   const cameraPos = new THREE.Vector3(cx, height, cz + pullback);
 
-  return { filteredWalls, center, cameraPos };
+  return { filteredWalls, wallOpenings, center, cameraPos };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +474,17 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
         color="#f0f0ff"
       />
 
-      <WallGroup walls={layout.filteredWalls} scaleFactor={data.scale_factor} />
+      <WallGroup
+        walls={layout.filteredWalls}
+        scaleFactor={data.scale_factor}
+        wallOpenings={layout.wallOpenings}
+      />
+
+      <OpeningsGroup
+        walls={layout.filteredWalls}
+        scaleFactor={data.scale_factor}
+        wallOpenings={layout.wallOpenings}
+      />
 
       <group name="floors">
         {data.rooms.map((r) => (
