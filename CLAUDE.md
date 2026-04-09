@@ -46,22 +46,32 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 
 ## Known Edge Cases
 - [2026-04-09] Stroke widths in real Israeli PDFs are 0.1-1.1pt, not the 3.0-5.0pt assumed in conventions doc. Must use RELATIVE thresholds from histogram peaks, not absolute values. Status: open.
-- [2026-04-09] crop_legend replaced with density-grid spatial clustering (adaptive threshold + morphological closing). Works on most PDFs. Samples 7/8 still unseparable (apartment and legend merge in density grid). Status: mostly resolved, Sprint 4 may add user-assisted crop fallback.
+- [2026-04-09] crop_legend uses density-grid spatial clustering (adaptive threshold 40-80th pct + 2x2 morphological closing). Works well on 3/10 PDFs, no separation needed on 4/10, partial on 3/10. Sprint 4 adds user-assisted manual crop fallback for edge cases.
 - [2026-04-09] Samples 7 and 8 are identical files. Use only one for testing.
-- [2026-04-09] Sample 0 has 15,936 segments — confirmed single apartment (Type D, 6 rooms) with large kartisiyyah.
+- [2026-04-09] Sample 0 has 15,936 segments — single apartment (Type D, 6 rooms) with large kartisiyyah + neighbor outline on left. Room labels are vector-drawn (0 extractable texts in apartment area).
 - [2026-04-09] Sample 5 is 2 pages (two 4-room variants). Split into Sample 5.0 and 5.1 locally (not in git — PDFs are gitignored).
+- [2026-04-09] isolate_apartment() exists in extraction.py (Shapely polygonize) but is NOT wired into the API pipeline. It's experimental — works on Sample 0 but too aggressive on others. Sprint 4 will replace with manual crop rectangle from user.
 
 ## Test PDF Inventory
-| # | File | Segments | Texts | Width Range | Peaks | Crop % | Status |
-|---|------|----------|-------|-------------|-------|--------|--------|
-| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 35.8% | Pass — crops top+right kartisiyyah. Room labels are vector-drawn (0 extractable texts in apt area) |
-| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 8.8% | Pass — density-grid now crops legend (was 0% with old approach) |
-| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.10–1.70 | 7 | 0.0% | Pass — no separation needed (multi-page, page 0) |
-| 3 | בניין-2-דירות | 3,406 | 351 | 0.10–1.12 | 5 | 0.3% | Pass — apartment fills page |
-| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.10–1.15 | 7 | 0.1% | Pass — 67 pages, page 0 |
-| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.10–1.10 | 8 | 0.0% | Pass — split from 2-page PDF |
-| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 0.10–1.10 | 8 | 6.9% | Pass — split from 2-page PDF |
-| 6 | build9-J-plan | 7,887 | 123 | 0.10–2.76 | 8 | 16.2% | Pass — density-grid crops legend (was 11%) |
-| 7 | build12-A-plan (1) | 4,239 | 492 | 0.10–1.71 | 9 | 0.0% | Pass — no separation possible, duplicate of 8 |
-| 8 | build12-A-plan | 4,239 | 492 | 0.10–1.71 | 9 | 0.0% | Pass — no separation possible, duplicate of 7 |
-| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 19.9% | Pass — density-grid now crops legend (was 0%) |
+
+### Crop works well (use for Sprint 2 testing)
+| # | File | Segments | Texts | Crop % | Status |
+|---|------|----------|-------|--------|--------|
+| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 35.8% | Crops kartisiyyah. Also has neighbor outline (Sprint 4 manual crop). |
+| 6 | build9-J-plan | 7,887 | 123 | 16.2% | Clean crop, legend on right side removed. |
+| 9 | vector sample | 4,673 | 212 | 19.9% | Legend borders removed effectively. |
+
+### No separation needed (apartment fills page)
+| # | File | Segments | Texts | Crop % | Status |
+|---|------|----------|-------|--------|--------|
+| 3 | בניין-2-דירות | 3,406 | 351 | 0.3% | Apartment fills page, no legend. |
+| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.1% | 67-page PDF, one apartment per page. |
+| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.0% | Clean single apartment. |
+| 7/8 | build12-A-plan | 4,239 | 492 | 0.0% | Duplicates. Apartment+legend merged, no density gap. |
+
+### Needs manual crop fallback (Sprint 4)
+| # | File | Segments | Texts | Crop % | Issue |
+|---|------|----------|-------|--------|-------|
+| 1 | דירה-2-תוכנית | 3,846 | 168 | 8.8% | Legend borders same width as walls, light crop only. |
+| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.0% | Multi-page (7 pages), page 0 no separation. |
+| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 6.9% | Light crop, most legend content remains. |
