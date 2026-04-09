@@ -23,16 +23,23 @@ Israeli contractor floor plans (תוכנית דירה) follow consistent convent
 
 ## Line Weight Conventions
 
-| Element | Typical Width (PDF pts) | Style |
-|---------|------------------------|-------|
-| Exterior walls | 1.5–3.0 | Solid, thick |
-| Interior walls | 0.5–1.5 | Solid, medium |
-| Mamad (ממ"ד) walls | 3.0–5.0 | Solid, THICKEST, often cross-hatched |
-| Dimension lines | 0.1–0.3 | Dashed or dotted, thin |
-| Furniture outlines | 0.2–0.5 | Solid, thin |
-| Grid/construction lines | 0.05–0.15 | Dotted, very thin |
-| Door arcs | 0.2–0.5 | Curved (arc), thin |
-| Window marks | 0.3–0.8 | Three parallel lines in wall |
+**IMPORTANT — Real vs. theoretical widths:**
+Real Israeli contractor PDFs use stroke widths in the **0.1–1.1 pt** range,
+far thinner than textbook assumptions. The table below shows theoretical
+ranges; in practice, classify by **relative ranking** from the histogram:
+thickest = mamad, thicker = exterior, medium = interior, thinnest = dimensions.
+Never use absolute thresholds — always derive from `compute_stroke_histogram()` peaks.
+
+| Element | Theoretical Width (PDF pts) | Real Observed (PDF pts) | Classification Rule | Style |
+|---------|---------------------------|------------------------|--------------------:|-------|
+| Mamad (ממ"ד) walls | 3.0–5.0 | highest peak | THICKEST in file | Solid, often cross-hatched |
+| Exterior walls | 1.5–3.0 | second-highest peak | Thicker than interior | Solid, thick |
+| Interior walls | 0.5–1.5 | middle peaks | Medium width | Solid, medium |
+| Window marks | 0.3–0.8 | varies | — | Three parallel lines in wall |
+| Furniture outlines | 0.2–0.5 | lower peaks | Thin | Solid, thin |
+| Door arcs | 0.2–0.5 | lower peaks | Thin | Curved (arc), thin |
+| Dimension lines | 0.1–0.3 | lowest peak | Thinnest | Dashed or dotted, thin |
+| Grid/construction lines | 0.05–0.15 | near-zero / hairline | Thinnest | Dotted, very thin |
 
 ## Room Naming (Hebrew)
 
