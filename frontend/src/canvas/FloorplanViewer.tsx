@@ -13,6 +13,7 @@ import type {
   MeasurementState,
   WallType,
   RoomType,
+  TextAnnotation,
 } from '@/types/floorplan';
 import './FloorplanViewer.css';
 
@@ -21,9 +22,9 @@ import './FloorplanViewer.css';
 // ---------------------------------------------------------------------------
 
 const WALL_COLORS: Record<WallType, string> = {
-  exterior: '#4A4A4A',
+  exterior: '#333333',
   structural: '#8B0000',
-  partition: '#4682B4',
+  partition: '#2E78C2',
   mamad: '#FF8C00',
   unknown: '#999999',
 };
@@ -129,12 +130,11 @@ function WallSegment({
         : '#4A4A4A';
 
   const sw =
-    Math.max(wall.width * WALL_WIDTH_MULTIPLIER[wall.wall_type], 1.5);
+    Math.max(wall.width * WALL_WIDTH_MULTIPLIER[wall.wall_type], 2);
 
-  const dash =
-    wall.wall_type === 'unknown' && !isHovered && !isSelected
-      ? [6, 3]
-      : undefined;
+  // Only dash truly unclassified walls when other classified walls exist nearby
+  // (avoids grey-dashed-everything when all walls are unknown from raw extraction)
+  const dash = undefined;
 
   return (
     <Line
@@ -586,7 +586,7 @@ function ConfidenceDashboard({
         <div className="fp-dashboard-card">
           <div className="fp-dashboard-card-label">{fmt('scale.label')}</div>
           <div className="fp-dashboard-card-value">
-            {data.scale_factor ? `1:${Math.round(1 / (data.scale_factor * 100 / 2.835))}` : fmt('viewer.scaleNeeded')}
+            {data.scale_factor ? `1:${Math.round(data.scale_factor / (0.0254 / 72))}` : fmt('viewer.scaleNeeded')}
           </div>
         </div>
         <div className="fp-dashboard-card">
@@ -661,19 +661,183 @@ function exportSVG(stageRef: React.RefObject<Konva.Stage | null>): void {
 }
 
 // ---------------------------------------------------------------------------
+// Convert /api/extract response → FloorplanData for rendering
+// ---------------------------------------------------------------------------
+
+interface ExtractSegment {
+  x1: number; y1: number; x2: number; y2: number;
+  width: number; color: number[]; dash_pattern: string | null;
+}
+
+interface ExtractText {
+  content: string; x: number; y: number; font_size: number;
+}
+
+interface ExtractResponse {
+  segments: ExtractSegment[];
+  texts: ExtractText[];
+  page_size: { width: number; height: number };
+  histogram: {
+    widths: number[];
+    peaks: number[];
+    suggested_thresholds: number[];
+  };
+  metadata?: {
+    scale_notation: string | null;
+    scale_value: number | null;
+    total_area_sqm: number | null;
+    balcony_area_sqm: number | null;
+  };
+  page_num: number;
+  page_count: number;
+}
+
+function classifyByWidth(
+  width: number,
+  thresholds: number[],
+  peaks: number[],
+): WallType {
+  if (thresholds.length === 0 || peaks.length === 0) return 'partition';
+
+  // Use the highest peak as the "wall" width reference.
+  // Segments significantly thicker than the dominant peak are exterior.
+  // Segments near or below the dominant peak are partition.
+  // Only a narrow top band is structural.
+  const maxPeak = peaks[peaks.length - 1];
+  const topThreshold = thresholds[thresholds.length - 1];
+
+  // Above the highest threshold → exterior (thickest walls)
+  if (width > topThreshold) return 'exterior';
+
+  // Above 80% of the top peak → structural (load-bearing interior)
+  if (peaks.length >= 3 && width > maxPeak * 0.8) return 'structural';
+
+  // Everything else → partition (most common)
+  return 'partition';
+}
+
+function extractToFloorplan(raw: ExtractResponse): FloorplanData {
+  const thresholds = raw.histogram?.suggested_thresholds ?? [];
+  const peaks = raw.histogram?.peaks ?? [];
+
+  const walls: Wall[] = raw.segments.map((seg, i) => {
+    const wt = classifyByWidth(seg.width, thresholds, peaks);
+    return {
+      id: `wall_${i}`,
+      start: { x: seg.x1, y: seg.y1 },
+      end: { x: seg.x2, y: seg.y2 },
+      width: seg.width,
+      wall_type: wt,
+      is_structural: wt === 'exterior' || wt === 'structural',
+      is_modifiable: wt === 'partition',
+      confidence: 50,
+      rooms: [],
+    };
+  });
+
+  // Derive scale_factor from metadata if available
+  // 1 PDF point = 1/72 inch = 0.0254/72 m on paper
+  // At scale 1:S, real-world = paper × S
+  // So 1 pt = (0.0254 / 72) * S metres in real world
+  const scaleValue = raw.metadata?.scale_value ?? 0;
+  const scaleFactor = scaleValue > 0
+    ? (0.0254 / 72) * scaleValue
+    : 0;
+
+  const texts: TextAnnotation[] = (raw.texts ?? []).map((t) => ({
+    content: t.content,
+    x: t.x,
+    y: t.y,
+    font_size: t.font_size,
+  }));
+
+  return {
+    rooms: [],
+    walls,
+    openings: [],
+    envelope: null,
+    validation: null,
+    confidence: scaleValue > 0 ? 30 : 0,
+    page_size: raw.page_size,
+    scale_factor: scaleFactor,
+    texts,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function FloorplanViewer({
-  data,
-  loading = false,
+  data: dataProp = null,
+  loading: loadingProp = false,
 }: {
-  data: FloorplanData | null;
+  data?: FloorplanData | null;
   loading?: boolean;
 }) {
   const intl = useIntl();
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Internal data state (used when no prop is provided)
+  const [internalData, setInternalData] = useState<FloorplanData | null>(null);
+  const [internalLoading, setInternalLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pageCount, setPageCount] = useState(1);
+  const [currentPage, setCurrentPage] = useState(0);
+
+  const data = dataProp ?? internalData;
+  const loading = loadingProp || internalLoading;
+
+  // Fetch a specific page from the stored PDF
+  const fetchPage = useCallback(async (file: File, pageNum: number) => {
+    setInternalLoading(true);
+    setUploadError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('page_num', String(pageNum));
+
+    try {
+      const resp = await fetch('http://localhost:8000/api/extract', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail?.message_he || err.detail?.message_en || 'שגיאה');
+      }
+      const raw: ExtractResponse = await resp.json();
+      setPageCount(raw.page_count);
+      setCurrentPage(raw.page_num);
+      setInternalData(extractToFloorplan(raw));
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'שגיאה');
+    } finally {
+      setInternalLoading(false);
+    }
+  }, []);
+
+  // Upload handler
+  const handleUpload = useCallback(async () => {
+    const input = fileInputRef.current;
+    if (!input?.files?.[0]) return;
+    const file = input.files[0];
+    setPdfFile(file);
+    setCurrentPage(0);
+    await fetchPage(file, 0);
+  }, [fetchPage]);
+
+  // Page change handler
+  const handlePageChange = useCallback(
+    (pageNum: number) => {
+      if (!pdfFile || pageNum === currentPage) return;
+      fetchPage(pdfFile, pageNum);
+    },
+    [pdfFile, currentPage, fetchPage],
+  );
 
   // Canvas size
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
@@ -874,6 +1038,46 @@ export default function FloorplanViewer({
 
       {/* ---- Toolbar ---- */}
       <div className="fp-toolbar" role="toolbar" aria-label={fmt('toolbar.layers')}>
+        {/* Upload */}
+        <div className="fp-toolbar-group">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            onChange={handleUpload}
+            hidden
+            aria-label={fmt('debug.uploadPdf')}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={fmt('debug.uploadPdf')}
+          >
+            {fmt('debug.uploadPdf')}
+          </button>
+          {/* Page selector — shown for multi-page PDFs */}
+          {pageCount > 1 && (
+            <select
+              value={currentPage}
+              onChange={(e) => handlePageChange(Number(e.target.value))}
+              style={{
+                padding: '4px 8px',
+                fontSize: '0.82rem',
+                borderRadius: 6,
+                border: '1px solid #ddd',
+                fontFamily: 'var(--font-family)',
+                minHeight: 36,
+              }}
+              aria-label="page selector"
+            >
+              {Array.from({ length: pageCount }, (_, i) => (
+                <option key={i} value={i}>
+                  {`${i + 1} / ${pageCount}`}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* Layer toggles */}
         <div className="fp-toolbar-group">
           <span className="fp-toolbar-label">{fmt('toolbar.layers')}</span>
@@ -954,7 +1158,13 @@ export default function FloorplanViewer({
             </div>
           )}
 
-          {!data && !loading && (
+          {uploadError && (
+            <div className="fp-loading" role="alert" style={{ color: '#c62828' }}>
+              {uploadError}
+            </div>
+          )}
+
+          {!data && !loading && !uploadError && (
             <div className="fp-placeholder">{fmt('viewer.noData')}</div>
           )}
 
@@ -1016,6 +1226,25 @@ export default function FloorplanViewer({
                         <WindowShape key={opening.id} opening={opening} scale={scale} />
                       ),
                     )}
+                  </Layer>
+                )}
+
+                {/* Text annotations layer */}
+                {layers.textAnnotations && data.texts.length > 0 && (
+                  <Layer>
+                    {data.texts.map((t, i) => (
+                      <KonvaText
+                        key={i}
+                        x={t.x}
+                        y={t.y}
+                        text={t.content}
+                        fontSize={Math.max(t.font_size, 6)}
+                        fontFamily="Heebo, sans-serif"
+                        fill="#333"
+                        opacity={0.8}
+                        listening={false}
+                      />
+                    ))}
                   </Layer>
                 )}
 

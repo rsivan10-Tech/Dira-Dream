@@ -111,6 +111,13 @@ export interface Validation {
 // Full floorplan data (detect-rooms response)
 // ---------------------------------------------------------------------------
 
+export interface TextAnnotation {
+  content: string;
+  x: number;
+  y: number;
+  font_size: number;
+}
+
 export interface FloorplanData {
   rooms: Room[];
   walls: Wall[];
@@ -120,6 +127,7 @@ export interface FloorplanData {
   confidence: number;
   page_size: { width: number; height: number };
   scale_factor: number;          // PDF points → metres
+  texts: TextAnnotation[];
 }
 
 // ---------------------------------------------------------------------------

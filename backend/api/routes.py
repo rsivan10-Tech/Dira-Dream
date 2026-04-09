@@ -2,7 +2,8 @@ import os
 import tempfile
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile
+import fitz
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from geometry.extraction import (
@@ -92,6 +93,8 @@ class ExtractResponse(BaseModel):
     histogram: StrokeHistogramResponse
     crop_report: CropReportResponse
     metadata: MetadataResponse
+    page_num: int = 0
+    page_count: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +108,7 @@ async def health_check():
 
 
 @router.post("/extract", response_model=ExtractResponse)
-async def extract_pdf(file: UploadFile):
+async def extract_pdf(file: UploadFile, page_num: int = Form(0)):
     # Validate file type
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
@@ -125,8 +128,18 @@ async def extract_pdf(file: UploadFile):
             content = await file.read()
             tmp.write(content)
 
+        # Get page count
+        doc = fitz.open(tmp_path)
+        page_count = len(doc)
+        doc.close()
+
+        if page_num < 0 or page_num >= page_count:
+            raise ValueError(
+                f"Page {page_num} does not exist (PDF has {page_count} pages)"
+            )
+
         # Extract → metadata (before crop!) → crop → histogram
-        raw = extract_vectors(tmp_path)
+        raw = extract_vectors(tmp_path, page_num=page_num)
         pre_crop_metadata = extract_metadata(raw["texts"])
         cropped = crop_legend(raw)
         histogram = compute_stroke_histogram(cropped["segments"])
@@ -198,6 +211,8 @@ async def extract_pdf(file: UploadFile):
             histogram=StrokeHistogramResponse(**histogram),
             crop_report=crop_report,
             metadata=metadata,
+            page_num=page_num,
+            page_count=page_count,
         )
 
     except ValueError as e:

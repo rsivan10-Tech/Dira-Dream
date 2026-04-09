@@ -3,12 +3,8 @@ import { IntlProvider } from 'react-intl';
 import messages_he from './i18n/he.json';
 import DebugViewer from './canvas/DebugViewer';
 import FloorplanViewer from './canvas/FloorplanViewer';
-import type { FloorplanData } from '@/types/floorplan';
 
 type AppMode = 'debug' | 'viewer';
-
-// Demo data for development — will be replaced by API call
-const DEMO_DATA: FloorplanData | null = null;
 
 function App() {
   const [mode, setMode] = useState<AppMode>('viewer');
@@ -61,7 +57,7 @@ function App() {
       {mode === 'debug' ? (
         <DebugViewer />
       ) : (
-        <FloorplanViewer data={DEMO_DATA} />
+        <FloorplanViewer />
       )}
     </IntlProvider>
   );
