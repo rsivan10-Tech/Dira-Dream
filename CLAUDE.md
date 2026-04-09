@@ -46,7 +46,7 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 
 ## Known Edge Cases
 - [2026-04-09] Stroke widths in real Israeli PDFs are 0.1-1.1pt, not the 3.0-5.0pt assumed in conventions doc. Must use RELATIVE thresholds from histogram peaks, not absolute values. Status: open.
-- [2026-04-09] crop_legend fails on 8/10 test PDFs — kartisiyyah borders use same stroke width as apartment walls, so width-based bbox covers full page. Kartisiyyah position varies (right, bottom, left) so directional heuristics won't work. Sprint 4 fallback: spatial clustering (densest connected region), text density ratio, or user-assisted crop rectangle.
+- [2026-04-09] crop_legend replaced with density-grid spatial clustering (adaptive threshold + morphological closing). Works on most PDFs. Samples 7/8 still unseparable (apartment and legend merge in density grid). Status: mostly resolved, Sprint 4 may add user-assisted crop fallback.
 - [2026-04-09] Samples 7 and 8 are identical files. Use only one for testing.
 - [2026-04-09] Sample 0 has 15,936 segments — confirmed single apartment (Type D, 6 rooms) with large kartisiyyah.
 - [2026-04-09] Sample 5 is 2 pages (two 4-room variants). Split into Sample 5.0 and 5.1 locally (not in git — PDFs are gitignored).
@@ -54,14 +54,14 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 ## Test PDF Inventory
 | # | File | Segments | Texts | Width Range | Peaks | Crop % | Status |
 |---|------|----------|-------|-------------|-------|--------|--------|
-| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 29.4% | Pass — single apt (Type D, 6 rooms), large kartisiyyah |
-| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 0.0% | Pass — legend borders same width as walls, crop ineffective |
-| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.10–1.70 | 7 | 0.1% | Pass |
-| 3 | בניין-2-דירות | 3,406 | 351 | 0.10–1.12 | 5 | 4.9% | Pass |
-| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.10–1.15 | 7 | 0.0% | Pass |
-| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.10–1.10 | 8 | 0.1% | Pass — split from 2-page PDF |
-| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 0.10–1.10 | 8 | — | Pass — split from 2-page PDF |
-| 6 | build9-J-plan | 7,887 | 123 | 0.10–2.76 | 8 | 11.0% | Pass |
-| 7 | build12-A-plan (1) | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 8 |
-| 8 | build12-A-plan | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 7 |
-| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 0.0% | Pass — legend borders same width as walls, crop ineffective |
+| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 35.8% | Pass — crops top+right kartisiyyah. Room labels are vector-drawn (0 extractable texts in apt area) |
+| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 8.8% | Pass — density-grid now crops legend (was 0% with old approach) |
+| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.10–1.70 | 7 | 0.0% | Pass — no separation needed (multi-page, page 0) |
+| 3 | בניין-2-דירות | 3,406 | 351 | 0.10–1.12 | 5 | 0.3% | Pass — apartment fills page |
+| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.10–1.15 | 7 | 0.1% | Pass — 67 pages, page 0 |
+| 5.0 | 4-Rooms-Newer2 (page 0) | 3,781 | 44 | 0.10–1.10 | 8 | 0.0% | Pass — split from 2-page PDF |
+| 5.1 | 4-Rooms-Newer2 (page 1) | 3,988 | 46 | 0.10–1.10 | 8 | 6.9% | Pass — split from 2-page PDF |
+| 6 | build9-J-plan | 7,887 | 123 | 0.10–2.76 | 8 | 16.2% | Pass — density-grid crops legend (was 11%) |
+| 7 | build12-A-plan (1) | 4,239 | 492 | 0.10–1.71 | 9 | 0.0% | Pass — no separation possible, duplicate of 8 |
+| 8 | build12-A-plan | 4,239 | 492 | 0.10–1.71 | 9 | 0.0% | Pass — no separation possible, duplicate of 7 |
+| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 19.9% | Pass — density-grid now crops legend (was 0%) |
