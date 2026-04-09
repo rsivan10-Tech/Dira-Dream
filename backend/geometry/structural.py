@@ -42,8 +42,8 @@ MAMAD_AREA_MAX = 15.0               # sqm
 MAMAD_THICKNESS_RATIO = 0.9         # Fraction of max thickness
 STRUCTURAL_THICKNESS_RATIO = 2.5    # Interior wall is structural if > 2.5x avg
 STRUCTURAL_PERCENTILE = 95          # AND width must be in top 5% of interior walls
-DOOR_WIDTH_MIN_CM = 60.0            # cm
-DOOR_WIDTH_MAX_CM = 100.0           # cm (was 120 — tighter to avoid window gaps)
+DOOR_WIDTH_MIN_CM = 65.0            # cm — standard Israeli door minimum
+DOOR_WIDTH_MAX_CM = 95.0            # cm — standard Israeli door maximum
 WINDOW_WIDTH_MIN_CM = 80.0          # cm
 WINDOW_WIDTH_MAX_CM = 200.0         # cm
 ARC_PROXIMITY_TOLERANCE = 15.0      # PDF points — arc near gap = door
@@ -61,42 +61,58 @@ def detect_exterior_walls(
     """
     Identify exterior (envelope) walls.
 
-    Strategy: build the convex hull of all wall segment endpoints to
-    approximate the apartment boundary.  Segments whose midpoint lies
-    near the hull boundary are exterior.  This is more robust than
-    room-union envelope for apartments with fragmented room detection.
+    Strategy:
+    1. Build a graph from segments, find largest connected component.
+    2. Build convex hull from that component's endpoints only
+       (excludes legend/annotation fragments on page edges).
+    3. Walls whose midpoint is in the perimeter band = exterior.
     """
-    if not segments:
+    if len(segments) < 6:
         return []
 
-    # Collect ALL endpoints
+    import networkx as nx
+    from shapely.geometry import MultiPoint
+
+    # Build quick graph to find the apartment (largest component)
+    G = nx.Graph()
+    for seg in segments:
+        s = (round(seg["start"][0], 1), round(seg["start"][1], 1))
+        e = (round(seg["end"][0], 1), round(seg["end"][1], 1))
+        if s != e:
+            G.add_edge(s, e)
+
+    if G.number_of_nodes() < 4:
+        return []
+
+    lc_nodes = max(nx.connected_components(G), key=len)
+
+    # Collect endpoints from largest component only
+    lc_set = set(lc_nodes)
     pts = []
     for seg in segments:
-        pts.append(seg["start"])
-        pts.append(seg["end"])
+        s = (round(seg["start"][0], 1), round(seg["start"][1], 1))
+        e = (round(seg["end"][0], 1), round(seg["end"][1], 1))
+        if s in lc_set or e in lc_set:
+            pts.append(seg["start"])
+            pts.append(seg["end"])
 
     if len(pts) < 6:
         return []
 
-    from shapely.geometry import MultiPoint
     hull = MultiPoint(pts).convex_hull
-    if hull.is_empty or hull.geom_type == "Point":
+    if hull.is_empty or hull.geom_type != "Polygon":
         return []
 
     hull_boundary = hull.exterior
-    # Shrink the hull inward to define the "interior" zone.
-    # Walls whose midpoint is OUTSIDE this shrunken interior are exterior.
-    # Use 5% of the hull's shortest dimension as the perimeter band width.
     bx0, by0, bx1, by1 = hull.bounds
     band_width = min(bx1 - bx0, by1 - by0) * 0.05
-    band_width = max(band_width, 10.0)  # at least 10pt
+    band_width = max(band_width, 10.0)
     hull_interior = hull.buffer(-band_width)
 
     exterior_walls: list[WallInfo] = []
     for seg in segments:
         seg_line = LineString([seg["start"], seg["end"]])
-        seg_len = seg_line.length
-        if seg_len < 2.0:
+        if seg_line.length < 2.0:
             continue
 
         mid = Point(
@@ -104,8 +120,6 @@ def detect_exterior_walls(
             (seg["start"][1] + seg["end"][1]) / 2,
         )
 
-        # A wall is exterior if its midpoint is inside the hull
-        # but outside the shrunken interior (i.e., in the perimeter band).
         in_hull = hull.contains(mid) or hull_boundary.distance(mid) < tolerance
         in_interior = hull_interior.contains(mid) if not hull_interior.is_empty else False
 
@@ -119,8 +133,9 @@ def detect_exterior_walls(
             ))
 
     logger.info(
-        "Exterior walls: %d / %d segments on boundary",
-        len(exterior_walls), len(segments),
+        "Exterior walls: %d / %d (band=%.0fpt, LC=%d nodes, hull=%dx%d)",
+        len(exterior_walls), len(segments), band_width,
+        len(lc_nodes), int(bx1 - bx0), int(by1 - by0),
     )
 
     return exterior_walls
@@ -542,7 +557,7 @@ def _gap_is_in_wall(
     collinear (parallel within max_angle_deg).  This filters out gaps
     between unrelated segments that happen to be door-width apart.
     """
-    MIN_WALL_LEN_FOR_DOOR = 8.0  # PDF points — segment must be real wall, not fragment
+    MIN_WALL_LEN_FOR_DOOR = 10.0  # PDF points — segment must be a real wall
 
     def _seg_angle(seg: dict) -> float:
         dx = seg["end"][0] - seg["start"][0]
