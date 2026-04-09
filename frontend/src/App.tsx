@@ -3,9 +3,10 @@ import { IntlProvider } from 'react-intl';
 import messages_he from './i18n/he.json';
 import DebugViewer from './canvas/DebugViewer';
 import FloorplanViewer from './canvas/FloorplanViewer';
+import FloorplanScene from './three/FloorplanScene';
 import type { FloorplanData } from '@/types/floorplan';
 
-type AppMode = 'debug' | 'viewer';
+type AppMode = 'debug' | 'viewer' | '3d';
 
 function App() {
   const [mode, setMode] = useState<AppMode>('viewer');
@@ -112,6 +113,21 @@ function App() {
         >
           {messages_he['app.modeViewer']}
         </button>
+        <button
+          onClick={() => setMode('3d')}
+          style={{
+            padding: '3px 10px',
+            fontSize: '0.78rem',
+            background: mode === '3d' ? '#2196f3' : '#333',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+            minHeight: 28,
+          }}
+        >
+          {messages_he['app.mode3D']}
+        </button>
 
         {/* Shared upload button — always visible in top bar */}
         <input
@@ -168,6 +184,21 @@ function App() {
 
       {mode === 'debug' ? (
         <DebugViewer />
+      ) : mode === '3d' ? (
+        floorplanData ? (
+          <FloorplanScene data={floorplanData} />
+        ) : (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 'calc(100vh - 36px)',
+            color: '#888',
+            fontSize: '0.9rem',
+          }}>
+            {loading ? messages_he['common.loading'] : messages_he['viewer.noData']}
+          </div>
+        )
       ) : (
         <FloorplanViewer
           data={floorplanData}
