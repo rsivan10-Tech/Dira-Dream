@@ -156,3 +156,83 @@ def extract_vectors(pdf_path: str, page_num: int = 0) -> dict:
         "page_size": (page_width, page_height),
         "page_num": page_num,
     }
+
+
+def _seg_bbox(seg: dict) -> tuple[float, float, float, float]:
+    """Return (min_x, min_y, max_x, max_y) for a segment."""
+    (x1, y1), (x2, y2) = seg["start"], seg["end"]
+    return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+
+
+def _bbox_intersects(a: tuple, b: tuple) -> bool:
+    """Check if two (min_x, min_y, max_x, max_y) bboxes overlap."""
+    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
+
+def crop_legend(data: dict) -> dict:
+    """
+    Crop kartisiyyah (title block / legend) by keeping only elements
+    inside the apartment bounding box.
+
+    Strategy: thick segments (>80th percentile stroke width) define the
+    apartment footprint. Everything outside that bbox + padding is legend/noise.
+
+    Returns filtered data dict with added 'crop_report'.
+    """
+    segments = data["segments"]
+    texts = data.get("texts", [])
+    page_w, page_h = data["page_size"]
+
+    if not segments:
+        return {**data, "crop_report": {"original_segments": 0, "kept_segments": 0, "crop_bbox": None}}
+
+    widths = [s["stroke_width"] for s in segments]
+    threshold = float(np.percentile(widths, THICK_PERCENTILE))
+
+    # Thick segments define the apartment area
+    thick = [s for s in segments if s["stroke_width"] >= threshold]
+    if not thick:
+        return {**data, "crop_report": {"original_segments": len(segments), "kept_segments": len(segments), "crop_bbox": None}}
+
+    # Compute bounding box of thick segments
+    all_x = []
+    all_y = []
+    for s in thick:
+        all_x.extend([s["start"][0], s["end"][0]])
+        all_y.extend([s["start"][1], s["end"][1]])
+
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+
+    # Add padding (10%), clamped to page bounds
+    pad_x = (max_x - min_x) * CROP_PADDING_RATIO
+    pad_y = (max_y - min_y) * CROP_PADDING_RATIO
+    crop_bbox = (
+        max(0.0, min_x - pad_x),
+        max(0.0, min_y - pad_y),
+        min(page_w, max_x + pad_x),
+        min(page_h, max_y + pad_y),
+    )
+
+    # Filter segments: keep if any part intersects crop bbox
+    kept_segments = [s for s in segments if _bbox_intersects(_seg_bbox(s), crop_bbox)]
+
+    # Filter texts: keep if text bbox intersects crop bbox
+    kept_texts = []
+    for t in texts:
+        bx0, by0, bx1, by1 = t["bbox"]
+        text_bb = (min(bx0, bx1), min(by0, by1), max(bx0, bx1), max(by0, by1))
+        if _bbox_intersects(text_bb, crop_bbox):
+            kept_texts.append(t)
+
+    return {
+        "segments": kept_segments,
+        "texts": kept_texts,
+        "page_size": data["page_size"],
+        "page_num": data["page_num"],
+        "crop_report": {
+            "original_segments": len(segments),
+            "kept_segments": len(kept_segments),
+            "crop_bbox": crop_bbox,
+        },
+    }
