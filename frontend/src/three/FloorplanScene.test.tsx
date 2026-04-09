@@ -15,6 +15,8 @@ import {
   WALL_COLORS,
   FLOOR_COLORS,
 } from './coordinateUtils';
+import { getWallsFor3D } from './FloorplanScene';
+import type { FloorplanData, Wall } from '@/types/floorplan';
 
 // ---------------------------------------------------------------------------
 // Coordinate transform
@@ -85,6 +87,81 @@ describe('constants', () => {
     ] as const) {
       expect(FLOOR_COLORS[type]).toBeDefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getWallsFor3D — wall-type + bbox filtering
+// ---------------------------------------------------------------------------
+
+function makeWall(overrides: Partial<Wall> & Pick<Wall, 'start' | 'end'>): Wall {
+  return {
+    id: 'w-test',
+    width: 1,
+    wall_type: 'exterior',
+    is_structural: false,
+    is_modifiable: true,
+    confidence: 1,
+    rooms: [],
+    ...overrides,
+  };
+}
+
+function makeFloorplanData(walls: Wall[], rooms: FloorplanData['rooms'] = []): FloorplanData {
+  return {
+    walls,
+    rooms,
+    openings: [],
+    envelope: null,
+    validation: null,
+    confidence: 1,
+    page_size: { width: 842, height: 595 },
+    scale_factor: 0.0176,
+    texts: [],
+    stated_area_sqm: null,
+    stated_balcony_sqm: null,
+  };
+}
+
+describe('getWallsFor3D', () => {
+  it('excludes unknown wall types (doors, dimensions, furniture)', () => {
+    const walls = [
+      makeWall({ id: 'w1', wall_type: 'exterior', start: { x: 100, y: 100 }, end: { x: 300, y: 100 } }),
+      makeWall({ id: 'w2', wall_type: 'unknown', start: { x: 150, y: 150 }, end: { x: 200, y: 150 } }),
+      makeWall({ id: 'w3', wall_type: 'partition', start: { x: 100, y: 200 }, end: { x: 300, y: 200 } }),
+    ];
+    const result = getWallsFor3D(makeFloorplanData(walls));
+    expect(result.every((w) => w.wall_type !== 'unknown')).toBe(true);
+    expect(result.length).toBe(2);
+  });
+
+  it('keeps all four classified wall types', () => {
+    const base = { start: { x: 100, y: 100 }, end: { x: 200, y: 100 } };
+    const walls = [
+      makeWall({ id: 'w1', wall_type: 'exterior', ...base }),
+      makeWall({ id: 'w2', wall_type: 'structural', ...base }),
+      makeWall({ id: 'w3', wall_type: 'mamad', ...base }),
+      makeWall({ id: 'w4', wall_type: 'partition', ...base }),
+    ];
+    const result = getWallsFor3D(makeFloorplanData(walls));
+    expect(result.length).toBe(4);
+  });
+
+  it('filters walls outside the room bbox', () => {
+    const roomPolygon = [[100, 100], [300, 100], [300, 300], [100, 300]];
+    const rooms = [{
+      id: 'r1', type: 'salon' as const, type_he: 'סלון', confidence: 1,
+      area_sqm: 12, perimeter_m: 14, polygon: roomPolygon,
+      centroid: { x: 200, y: 200 }, label_point: { x: 200, y: 200 },
+      classification_method: 'text_label', needs_review: false, is_modifiable: true,
+    }];
+    const walls = [
+      makeWall({ id: 'inside', wall_type: 'exterior', start: { x: 100, y: 100 }, end: { x: 300, y: 100 } }),
+      makeWall({ id: 'legend', wall_type: 'exterior', start: { x: 500, y: 500 }, end: { x: 700, y: 500 } }),
+    ];
+    const result = getWallsFor3D(makeFloorplanData(walls, rooms));
+    expect(result.length).toBe(1);
+    expect(result[0].id).toBe('inside');
   });
 });
 

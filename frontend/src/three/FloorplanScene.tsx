@@ -26,45 +26,58 @@ function toCm(pdfPt: number, scaleFactor: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Page-boundary filter
+// Wall filter — only classified walls inside the apartment bbox
 // ---------------------------------------------------------------------------
 
+/** Wall types that should be extruded in 3D. */
+const WALL_TYPES_FOR_3D = new Set(['exterior', 'mamad', 'structural', 'partition']);
+
 /**
- * Filter out walls that lie on the outermost axis-aligned bounding rectangle.
- * These are PDF page borders or legend frames — not apartment walls.
- *
- * Algorithm: compute the AABB of all wall endpoints, then reject any wall
- * whose BOTH endpoints sit on the bbox edge (within tolerance).
+ * Return only wall segments suitable for 3D extrusion:
+ *  1. wall_type must be a known wall type (not 'unknown')
+ *  2. Segment midpoint must lie inside the apartment bbox (derived from
+ *     room polygons when available, else from classified walls only)
+ *  3. Page-boundary walls (both endpoints on outer AABB edge) are excluded
  */
-export function filterPageBoundary(walls: WallData[], toleranceFraction = 0.01): WallData[] {
-  if (walls.length === 0) return walls;
+export function getWallsFor3D(data: FloorplanData): WallData[] {
+  // Step 1: keep only classified wall types
+  const typed = data.walls.filter((w) => WALL_TYPES_FOR_3D.has(w.wall_type));
+  if (typed.length === 0) return typed;
 
-  // Compute AABB in PDF-point space (pre-transform)
+  // Step 2: compute apartment bbox — prefer room polygons (tighter), fall
+  // back to the classified-wall endpoints
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const w of walls) {
-    minX = Math.min(minX, w.start.x, w.end.x);
-    maxX = Math.max(maxX, w.start.x, w.end.x);
-    minY = Math.min(minY, w.start.y, w.end.y);
-    maxY = Math.max(maxY, w.start.y, w.end.y);
+
+  if (data.rooms.length > 0) {
+    for (const r of data.rooms) {
+      for (const [x, y] of r.polygon) {
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  } else {
+    for (const w of typed) {
+      minX = Math.min(minX, w.start.x, w.end.x);
+      maxX = Math.max(maxX, w.start.x, w.end.x);
+      minY = Math.min(minY, w.start.y, w.end.y);
+      maxY = Math.max(maxY, w.start.y, w.end.y);
+    }
   }
 
-  const rangeX = maxX - minX;
-  const rangeY = maxY - minY;
-  if (rangeX === 0 || rangeY === 0) return walls;
+  // Pad bbox by 10% so walls ON the apartment boundary aren't clipped
+  const padX = (maxX - minX) * 0.10;
+  const padY = (maxY - minY) * 0.10;
+  minX -= padX; maxX += padX;
+  minY -= padY; maxY += padY;
 
-  // Tolerance: fraction of the total range
-  const tolX = rangeX * toleranceFraction;
-  const tolY = rangeY * toleranceFraction;
-
-  function onEdge(x: number, y: number): boolean {
-    const onLeft = Math.abs(x - minX) <= tolX;
-    const onRight = Math.abs(x - maxX) <= tolX;
-    const onTop = Math.abs(y - minY) <= tolY;
-    const onBottom = Math.abs(y - maxY) <= tolY;
-    return onLeft || onRight || onTop || onBottom;
-  }
-
-  return walls.filter((w) => !(onEdge(w.start.x, w.start.y) && onEdge(w.end.x, w.end.y)));
+  // Step 3: keep walls whose midpoint is inside the padded apartment bbox
+  return typed.filter((w) => {
+    const mx = (w.start.x + w.end.x) / 2;
+    const my = (w.start.y + w.end.y) / 2;
+    return mx >= minX && mx <= maxX && my >= minY && my <= maxY;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +229,7 @@ interface SceneLayout {
 
 /** Compute filtered walls, centroid, and auto-fit camera position. */
 function computeLayout(data: FloorplanData): SceneLayout {
-  const filteredWalls = filterPageBoundary(data.walls);
+  const filteredWalls = getWallsFor3D(data);
 
   const walls = filteredWalls.length > 0 ? filteredWalls : data.walls;
 
