@@ -11,6 +11,7 @@ import math
 
 import fitz  # PyMuPDF
 import numpy as np
+from scipy.ndimage import binary_closing, label as ndimage_label
 from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
 
@@ -171,42 +172,93 @@ def _bbox_intersects(a: tuple, b: tuple) -> bool:
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
 
+def _no_crop_report(total: int) -> dict:
+    """Return a crop_report that indicates no cropping was applied."""
+    return {"original_segments": total, "kept_segments": total, "crop_bbox": None}
+
+
 def crop_legend(data: dict) -> dict:
     """
-    Crop kartisiyyah (title block / legend) by keeping only elements
-    inside the apartment bounding box.
+    Crop kartisiyyah (title block / legend) using density-grid clustering.
 
-    Strategy: thick segments (>80th percentile stroke width) define the
-    apartment footprint. Everything outside that bbox + padding is legend/noise.
+    Strategy:
+    1. Divide the page into a grid of cells.
+    2. Accumulate segment length per cell (weighted by stroke width).
+    3. Threshold at median of non-zero cells.
+    4. Find connected components of above-threshold cells (scipy.ndimage.label).
+    5. The largest component (by total density) is the apartment region.
+    6. Filter segments/texts outside that region's bbox + padding.
 
-    Returns filtered data dict with added 'crop_report'.
+    This replaces the old approach (thick-segment bbox) which failed when
+    kartisiyyah borders had similar stroke widths to apartment walls.
     """
     segments = data["segments"]
     texts = data.get("texts", [])
     page_w, page_h = data["page_size"]
 
-    if not segments:
-        return {**data, "crop_report": {"original_segments": 0, "kept_segments": 0, "crop_bbox": None}}
+    if len(segments) < 20:
+        return {**data, "crop_report": _no_crop_report(len(segments))}
 
-    widths = [s["stroke_width"] for s in segments]
-    threshold = float(np.percentile(widths, THICK_PERCENTILE))
+    original_count = len(segments)
 
-    # Thick segments define the apartment area
-    thick = [s for s in segments if s["stroke_width"] >= threshold]
-    if not thick:
-        return {**data, "crop_report": {"original_segments": len(segments), "kept_segments": len(segments), "crop_bbox": None}}
+    # --- Build density grid ---
+    GRID = 30
+    cell_w = page_w / GRID
+    cell_h = page_h / GRID
+    density = np.zeros((GRID, GRID))
 
-    # Compute bounding box of thick segments
-    all_x = []
-    all_y = []
-    for s in thick:
-        all_x.extend([s["start"][0], s["end"][0]])
-        all_y.extend([s["start"][1], s["end"][1]])
+    for s in segments:
+        seg_len = _segment_length(s)
+        weight = seg_len * max(s["stroke_width"], HAIRLINE_WIDTH)
+        for px, py in [s["start"], s["end"]]:
+            ci = int(np.clip(px / cell_w, 0, GRID - 1))
+            ri = int(np.clip(py / cell_h, 0, GRID - 1))
+            density[ri, ci] += weight / 2
 
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
+    nonzero = density[density > 0]
+    if len(nonzero) < 4:
+        return {**data, "crop_report": _no_crop_report(original_count)}
 
-    # Add padding (10%), clamped to page bounds
+    # --- Adaptive threshold: find the level that separates apartment from legend ---
+    # Try progressively higher thresholds until the largest component covers
+    # a reasonable fraction of the grid (15-85%), indicating clean separation.
+    labeled = None
+    best_label = None
+    for pct in (40, 50, 60, 70, 80):
+        thresh = float(np.percentile(nonzero, pct))
+        mask = (density >= thresh).astype(np.int32)
+        # Light closing (2x2) to bridge immediate neighbors without merging
+        # distant regions.
+        closed = binary_closing(mask, structure=np.ones((2, 2))).astype(np.int32)
+        lab, n_labels = ndimage_label(closed)
+
+        if n_labels < 2:
+            continue  # everything merged — try higher threshold
+
+        sizes = {lb: int(np.sum(lab == lb)) for lb in range(1, n_labels + 1)}
+        top_label = max(sizes, key=sizes.get)
+        ratio = sizes[top_label] / (GRID * GRID)
+
+        if 0.15 <= ratio <= 0.85:
+            labeled = lab
+            best_label = top_label
+            break
+
+    if labeled is None or best_label is None:
+        return {**data, "crop_report": _no_crop_report(original_count)}
+
+    rows, cols = np.where(labeled == best_label)
+    min_x = float(cols.min()) * cell_w
+    max_x = float(cols.max() + 1) * cell_w
+    min_y = float(rows.min()) * cell_h
+    max_y = float(rows.max() + 1) * cell_h
+
+    # Skip if bbox already covers >92% of page (no meaningful crop)
+    bbox_area = (max_x - min_x) * (max_y - min_y)
+    if bbox_area > 0.92 * page_w * page_h:
+        return {**data, "crop_report": _no_crop_report(original_count)}
+
+    # Pad and clamp
     pad_x = (max_x - min_x) * CROP_PADDING_RATIO
     pad_y = (max_y - min_y) * CROP_PADDING_RATIO
     crop_bbox = (
@@ -216,10 +268,14 @@ def crop_legend(data: dict) -> dict:
         min(page_h, max_y + pad_y),
     )
 
-    # Filter segments: keep if any part intersects crop bbox
+    # Filter segments
     kept_segments = [s for s in segments if _bbox_intersects(_seg_bbox(s), crop_bbox)]
 
-    # Filter texts: keep if text bbox intersects crop bbox
+    # Safety: if we'd remove >70% of segments, something is wrong — skip crop
+    if len(kept_segments) < original_count * 0.3:
+        return {**data, "crop_report": _no_crop_report(original_count)}
+
+    # Filter texts
     kept_texts = []
     for t in texts:
         bx0, by0, bx1, by1 = t["bbox"]
@@ -233,7 +289,7 @@ def crop_legend(data: dict) -> dict:
         "page_size": data["page_size"],
         "page_num": data["page_num"],
         "crop_report": {
-            "original_segments": len(segments),
+            "original_segments": original_count,
             "kept_segments": len(kept_segments),
             "crop_bbox": crop_bbox,
         },
