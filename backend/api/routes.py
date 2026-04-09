@@ -13,7 +13,7 @@ from geometry.extraction import (
     extract_vectors,
 )
 from geometry.graph import build_planar_graph
-from geometry.healing import HealingConfig, heal_geometry
+from geometry.healing import HealingConfig, filter_largest_component, heal_geometry
 from geometry.rooms import classify_rooms, detect_rooms
 from geometry.structural import (
     classify_structural,
@@ -349,6 +349,10 @@ async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
 
         # 3. Heal
         healed, heal_stats = heal_geometry(wall_segs, HealingConfig())
+
+        # 3b. Keep only the largest connected component (the apartment).
+        # Discards legend elements, neighbor outlines, and disconnected fragments.
+        healed = filter_largest_component(healed)
 
         # 4. Graph
         G, embedding, graph_stats = build_planar_graph(healed)

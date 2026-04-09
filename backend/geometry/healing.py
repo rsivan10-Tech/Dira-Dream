@@ -838,6 +838,54 @@ def validate_healed(segments: list[dict]) -> dict:
     }
 
 
+def filter_largest_component(segments: list[dict]) -> list[dict]:
+    """
+    Keep only segments that belong to the largest connected component.
+
+    The apartment is the largest connected component in the healed graph.
+    Legend elements, neighbor outlines, and disconnected fragments are in
+    smaller components and get discarded.
+    """
+    if len(segments) <= 1:
+        return segments
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    G = nx.Graph()
+    for seg in segments:
+        p1 = _point_key(seg["start"])
+        p2 = _point_key(seg["end"])
+        if p1 != p2:
+            G.add_edge(p1, p2)
+
+    if G.number_of_nodes() == 0:
+        return segments
+
+    components = list(nx.connected_components(G))
+    if len(components) <= 1:
+        return segments
+
+    largest = max(components, key=len)
+
+    kept = []
+    removed = 0
+    for seg in segments:
+        p1 = _point_key(seg["start"])
+        p2 = _point_key(seg["end"])
+        if p1 in largest or p2 in largest:
+            kept.append(seg)
+        else:
+            removed += 1
+
+    logger.info(
+        "filter_largest_component: %d components, kept %d segments "
+        "(largest component), removed %d",
+        len(components), len(kept), removed,
+    )
+    return kept
+
+
 # ---------------------------------------------------------------------------
 # POST-HEAL: second-pass gap fill for remaining dead ends
 # ---------------------------------------------------------------------------

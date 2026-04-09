@@ -147,21 +147,12 @@ describe('getWallsFor3D', () => {
     expect(result.length).toBe(4);
   });
 
-  it('filters walls outside the room bbox', () => {
-    const roomPolygon = [[100, 100], [300, 100], [300, 300], [100, 300]];
-    const rooms = [{
-      id: 'r1', type: 'salon' as const, type_he: 'סלון', confidence: 1,
-      area_sqm: 12, perimeter_m: 14, polygon: roomPolygon,
-      centroid: { x: 200, y: 200 }, label_point: { x: 200, y: 200 },
-      classification_method: 'text_label', needs_review: false, is_modifiable: true,
-    }];
+  it('returns empty array when all walls are unknown', () => {
     const walls = [
-      makeWall({ id: 'inside', wall_type: 'exterior', start: { x: 100, y: 100 }, end: { x: 300, y: 100 } }),
-      makeWall({ id: 'legend', wall_type: 'exterior', start: { x: 500, y: 500 }, end: { x: 700, y: 500 } }),
+      makeWall({ id: 'w1', wall_type: 'unknown', start: { x: 100, y: 100 }, end: { x: 300, y: 100 } }),
     ];
-    const result = getWallsFor3D(makeFloorplanData(walls, rooms));
-    expect(result.length).toBe(1);
-    expect(result[0].id).toBe('inside');
+    const result = getWallsFor3D(makeFloorplanData(walls));
+    expect(result.length).toBe(0);
   });
 });
 
