@@ -33,24 +33,43 @@ function toCm(pdfPt: number, scaleFactor: number): number {
 const WALL_TYPES_FOR_3D = new Set(['exterior', 'mamad', 'structural', 'partition']);
 
 /**
- * Return only wall segments suitable for 3D extrusion:
- *  1. wall_type must be a known wall type (not 'unknown')
- *  2. BOTH endpoints must lie inside the apartment bbox + 10% padding
- *     (bbox derived from room polygons when available — tighter than wall AABB)
+ * Return only wall segments suitable for 3D extrusion.
  *
- * This is a hard spatial crop: anything with even one endpoint outside the
- * apartment region is discarded, eliminating legend elements and page frames.
+ * Strategy:
+ *  1. Type filter — only classified wall types (not 'unknown')
+ *  2. Room-adjacent walls (wall.rooms.length > 0) are always kept — they
+ *     are definitively part of the apartment
+ *  3. Non-room walls are kept only if BOTH endpoints fall inside a tight
+ *     bbox derived from the room-adjacent walls (5% padding)
+ *
+ * This two-tier approach keeps apartment boundary walls while rejecting
+ * legend elements, page frames, and building diagrams that happen to share
+ * the same stroke-width classification.
  */
 export function getWallsFor3D(data: FloorplanData): WallData[] {
-  // Step 1: keep only classified wall types
+  // Step 1: type filter
   const typed = data.walls.filter((w) => WALL_TYPES_FOR_3D.has(w.wall_type));
   if (typed.length === 0) return typed;
 
-  // Step 2: compute apartment bbox — prefer room polygons (tighter), fall
-  // back to the classified-wall endpoints
+  // Step 2: separate room-adjacent walls (gold signal) from the rest
+  const withRoom = typed.filter((w) => w.rooms.length > 0);
+  const noRoom = typed.filter((w) => w.rooms.length === 0);
+
+  // If every wall has room adjacency, we're done
+  if (noRoom.length === 0) return withRoom;
+
+  // Step 3: compute tight apartment bbox
+  //   Priority: room-adjacent wall endpoints > room polygon vertices > all typed
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-  if (data.rooms.length > 0) {
+  if (withRoom.length > 0) {
+    for (const w of withRoom) {
+      minX = Math.min(minX, w.start.x, w.end.x);
+      maxX = Math.max(maxX, w.start.x, w.end.x);
+      minY = Math.min(minY, w.start.y, w.end.y);
+      maxY = Math.max(maxY, w.start.y, w.end.y);
+    }
+  } else if (data.rooms.length > 0) {
     for (const r of data.rooms) {
       for (const [x, y] of r.polygon) {
         minX = Math.min(minX, x);
@@ -60,27 +79,26 @@ export function getWallsFor3D(data: FloorplanData): WallData[] {
       }
     }
   } else {
-    for (const w of typed) {
-      minX = Math.min(minX, w.start.x, w.end.x);
-      maxX = Math.max(maxX, w.start.x, w.end.x);
-      minY = Math.min(minY, w.start.y, w.end.y);
-      maxY = Math.max(maxY, w.start.y, w.end.y);
-    }
+    // No room signal at all — return type-filtered only
+    return typed;
   }
 
-  // Pad bbox by 10% so walls ON the apartment boundary aren't clipped
-  const padX = (maxX - minX) * 0.10;
-  const padY = (maxY - minY) * 0.10;
+  // 5% padding — tight enough to exclude nearby legend, loose enough for
+  // exterior walls slightly beyond room polygons
+  const padX = (maxX - minX) * 0.05;
+  const padY = (maxY - minY) * 0.05;
   minX -= padX; maxX += padX;
   minY -= padY; maxY += padY;
 
-  // Step 3: keep walls where BOTH endpoints are inside the padded bbox
-  return typed.filter((w) =>
+  // Step 4: filter non-room walls by strict bbox (both endpoints inside)
+  const bboxFiltered = noRoom.filter((w) =>
     w.start.x >= minX && w.start.x <= maxX &&
     w.start.y >= minY && w.start.y <= maxY &&
     w.end.x >= minX && w.end.x <= maxX &&
     w.end.y >= minY && w.end.y <= maxY,
   );
+
+  return [...withRoom, ...bboxFiltered];
 }
 
 // ---------------------------------------------------------------------------
