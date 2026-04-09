@@ -1,0 +1,81 @@
+:root {
+  --font-family: 'Heebo', sans-serif;
+  --font-weight-light: 300;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+}
+
+body {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-regular);
+  direction: rtl;
+  text-align: start;
+  margin: 0;
+  min-height: 100vh;
+  color: #1a1a1a;
+  background: #f5f5f5;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-weight-bold);
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: row-reverse; /* RTL: canvas on right, sidebar on left */
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 320px;
+  order: 1; /* Appears on left in RTL */
+  padding-block: 2rem;
+  padding-inline: 2rem;
+  background: #ffffff;
+  border-inline-end: 1px solid #e0e0e0;
+}
+
+.canvas-area {
+  flex: 1;
+  order: 0; /* Appears on right in RTL */
+  padding-block: 2rem;
+  padding-inline: 2rem;
+}
+
+button {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  padding-block: 12px;
+  padding-inline: 24px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #2196f3;
+  border-radius: 8px;
+  background: #2196f3;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+button:hover {
+  background: #1976d2;
+}
+
+:focus-visible {
+  outline: 3px solid #2196f3;
+  outline-offset: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,11 @@
+pymupdf
+shapely
+scipy
+networkx
+fastapi
+uvicorn
+numpy
+sqlalchemy
+psycopg2-binary
+python-multipart
+pydantic
