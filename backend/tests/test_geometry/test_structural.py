@@ -178,16 +178,21 @@ class TestClassifyStructural:
             assert w.confidence == 85.0
 
     def test_thick_interior_is_structural(self):
-        """Interior wall much thicker than average -> likely structural."""
-        segments = [
-            _seg((0, 0), (100, 0), width=1.0),    # normal
-            _seg((50, 0), (50, 80), width=1.0),   # normal
-            _seg((25, 0), (25, 80), width=3.0),   # thick interior
-        ]
+        """Interior wall much thicker than average -> likely structural.
+
+        Needs enough segments so the 95th-percentile threshold allows
+        detection, and the thick wall must be > 2.5× avg to pass the
+        ratio threshold.
+        """
+        # 10 normal walls at 1.0, 1 thick wall at 5.0
+        # avg = (10*1.0 + 5.0)/11 = 1.36, ratio threshold = 1.36*2.5 = 3.41
+        # 95th pct of [1.0]*10 + [5.0] ≈ 5.0 → 5.0 > 3.41 AND > pct ✓
+        segments = [_seg((i * 20, 0), (i * 20 + 15, 0), width=1.0) for i in range(10)]
+        segments.append(_seg((25, 0), (25, 80), width=5.0))  # thick interior
 
         result = classify_structural(segments, [], None)
 
-        thick_wall = [w for w in result if w.segment == segments[2]][0]
+        thick_wall = [w for w in result if w.segment == segments[10]][0]
         assert thick_wall.wall_type == "structural"
         assert thick_wall.is_structural is True
         assert thick_wall.confidence == 70.0

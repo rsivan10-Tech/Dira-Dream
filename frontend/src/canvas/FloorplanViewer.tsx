@@ -237,13 +237,17 @@ function RoomLabel({
 
 function DoorShape({
   opening,
+  scaleFactor,
   scale,
 }: {
   opening: Opening;
+  scaleFactor: number;
   scale: number;
 }) {
-  // Quarter-circle arc from hinge point
-  const radiusPt = opening.width_cm / 2;
+  // Convert cm to PDF points for arc radius
+  const radiusPt = scaleFactor > 0
+    ? (opening.width_cm / 100) / scaleFactor / 2
+    : 15;
   const radius = Math.max(radiusPt, 8);
 
   return (
@@ -265,15 +269,21 @@ function DoorShape({
 
 function WindowShape({
   opening,
+  scaleFactor,
   scale,
 }: {
   opening: Opening;
+  scaleFactor: number;
   scale: number;
 }) {
-  // Three parallel lines at opening position
-  const halfW = opening.width_cm / 4;
-  const sw = Math.max(0.8, 0.8 / scale);
-  const gap = 3;
+  // Convert cm back to PDF points for rendering
+  // scaleFactor = metres per PDF point, so 1 cm = 0.01 / scaleFactor points
+  const widthPt = scaleFactor > 0
+    ? (opening.width_cm / 100) / scaleFactor
+    : 20;  // fallback
+  const halfW = widthPt / 2;
+  const sw = Math.max(1.5, 1.5 / scale);
+  const gap = Math.max(2, 3 / scale);
 
   return (
     <Group listening={false}>
@@ -1209,9 +1219,9 @@ export default function FloorplanViewer({
                   <Layer>
                     {data.openings.map((opening) =>
                       opening.type === 'door' ? (
-                        <DoorShape key={opening.id} opening={opening} scale={scale} />
+                        <DoorShape key={opening.id} opening={opening} scaleFactor={data.scale_factor} scale={scale} />
                       ) : (
-                        <WindowShape key={opening.id} opening={opening} scale={scale} />
+                        <WindowShape key={opening.id} opening={opening} scaleFactor={data.scale_factor} scale={scale} />
                       ),
                     )}
                   </Layer>

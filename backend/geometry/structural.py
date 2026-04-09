@@ -40,9 +40,10 @@ EXTERIOR_DISTANCE_TOLERANCE = 5.0   # PDF points — max distance to envelope
 MAMAD_AREA_MIN = 9.0                # sqm
 MAMAD_AREA_MAX = 15.0               # sqm
 MAMAD_THICKNESS_RATIO = 0.9         # Fraction of max thickness
-STRUCTURAL_THICKNESS_RATIO = 1.5    # Interior wall is structural if > 1.5x avg
+STRUCTURAL_THICKNESS_RATIO = 2.5    # Interior wall is structural if > 2.5x avg
+STRUCTURAL_PERCENTILE = 95          # AND width must be in top 5% of interior walls
 DOOR_WIDTH_MIN_CM = 60.0            # cm
-DOOR_WIDTH_MAX_CM = 120.0           # cm
+DOOR_WIDTH_MAX_CM = 100.0           # cm (was 120 — tighter to avoid window gaps)
 WINDOW_WIDTH_MIN_CM = 80.0          # cm
 WINDOW_WIDTH_MAX_CM = 200.0         # cm
 ARC_PROXIMITY_TOLERANCE = 15.0      # PDF points — arc near gap = door
@@ -261,6 +262,12 @@ def classify_structural(
     ]
     avg_interior = (sum(interior_widths) / len(interior_widths)) if interior_widths else 0.0
 
+    # Percentile-based structural threshold: must be both > ratio * avg AND
+    # in the top STRUCTURAL_PERCENTILE of interior widths.  Israeli PDFs have
+    # narrow width ranges (0.1-1.7pt), so ratio alone catches too many.
+    pct_threshold = float(np.percentile(interior_widths, STRUCTURAL_PERCENTILE)) if interior_widths else 0.0
+    ratio_threshold = avg_interior * thickness_ratio
+
     classified: list[WallInfo] = []
 
     for seg in segments:
@@ -283,7 +290,9 @@ def classify_structural(
                 is_modifiable=False,
                 confidence=95.0,
             ))
-        elif avg_interior > 0 and width > avg_interior * thickness_ratio:
+        elif (avg_interior > 0
+              and width > ratio_threshold
+              and width > pct_threshold):
             classified.append(WallInfo(
                 segment=seg,
                 wall_type="structural",
@@ -446,6 +455,13 @@ def detect_doors_and_windows(
                 gap = math.hypot(other[0] - pt[0], other[1] - pt[1])
 
                 if door_min_pt <= gap <= door_max_pt:
+                    # Collinearity check: the wall segments on each side
+                    # of the gap should be roughly parallel (gap "in" a wall).
+                    if not _gap_is_in_wall(
+                        i, j, dangles, dangle_seg_ids, segments,
+                    ):
+                        continue
+
                     mid = ((pt[0] + other[0]) / 2, (pt[1] + other[1]) / 2)
                     width_cm = gap * scale_factor * 100
 
@@ -490,6 +506,59 @@ def detect_doors_and_windows(
     )
 
     return openings, report
+
+
+def _gap_is_in_wall(
+    idx_a: int,
+    idx_b: int,
+    dangles: list[tuple],
+    dangle_seg_ids: dict[int, set[int]],
+    segments: list[dict],
+    max_angle_deg: float = 30.0,
+) -> bool:
+    """
+    Check that two dangling endpoints form a gap *within* a wall line.
+
+    The wall segments attached to each endpoint should be roughly
+    collinear (parallel within max_angle_deg).  This filters out gaps
+    between unrelated segments that happen to be door-width apart.
+    """
+    MIN_WALL_LEN_FOR_DOOR = 8.0  # PDF points — segment must be real wall, not fragment
+
+    def _seg_angle(seg: dict) -> float:
+        dx = seg["end"][0] - seg["start"][0]
+        dy = seg["end"][1] - seg["start"][1]
+        return math.atan2(dy, dx)
+
+    def _seg_len(seg: dict) -> float:
+        return math.hypot(
+            seg["end"][0] - seg["start"][0],
+            seg["end"][1] - seg["start"][1],
+        )
+
+    seg_ids_a = dangle_seg_ids.get(idx_a, set())
+    seg_ids_b = dangle_seg_ids.get(idx_b, set())
+    if not seg_ids_a or not seg_ids_b:
+        return False
+
+    # Get the segment on each side of the gap
+    seg_a = segments[next(iter(seg_ids_a))]
+    seg_b = segments[next(iter(seg_ids_b))]
+
+    # Both segments must be real wall segments (not tiny fragments)
+    if _seg_len(seg_a) < MIN_WALL_LEN_FOR_DOOR or _seg_len(seg_b) < MIN_WALL_LEN_FOR_DOOR:
+        return False
+
+    angle_a = _seg_angle(seg_a)
+    angle_b = _seg_angle(seg_b)
+
+    # Check parallelism: the two wall segments should be roughly parallel
+    # (i.e., the gap is a break in a continuous wall line)
+    diff = abs(angle_a - angle_b) % math.pi
+    if diff > math.radians(max_angle_deg) and diff < math.radians(180 - max_angle_deg):
+        return False
+
+    return True
 
 
 def _find_connected_rooms(
