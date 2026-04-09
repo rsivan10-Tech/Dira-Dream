@@ -6,12 +6,13 @@
 import { useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
-import type { FloorplanData, Wall as WallData } from '@/types/floorplan';
+import type { FloorplanData, Wall as WallData, Room as RoomData } from '@/types/floorplan';
 import {
   pdfToThree,
   CEILING_HEIGHT_M,
   WALL_THICKNESS_M,
   WALL_COLORS,
+  FLOOR_COLORS,
 } from './coordinateUtils';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,81 @@ function WallGroup({ walls, scaleFactor }: { walls: WallData[]; scaleFactor: num
 }
 
 // ---------------------------------------------------------------------------
+// FloorMesh — room polygon at y=0
+// ---------------------------------------------------------------------------
+
+interface RoomMeshProps {
+  room: RoomData;
+  scaleFactor: number;
+}
+
+export function FloorMesh({ room, scaleFactor }: RoomMeshProps) {
+  const geometry = useMemo(() => {
+    if (room.polygon.length < 3) return null;
+
+    const verts = room.polygon.map(([x, y]) =>
+      pdfToThree(toCm(x, scaleFactor), toCm(y, scaleFactor)),
+    );
+
+    const shape = new THREE.Shape();
+    shape.moveTo(verts[0].x, verts[0].z);
+    for (let i = 1; i < verts.length; i++) {
+      shape.lineTo(verts[i].x, verts[i].z);
+    }
+    shape.closePath();
+
+    const geom = new THREE.ShapeGeometry(shape);
+    geom.rotateX(-Math.PI / 2); // lay flat on XZ plane
+    return geom;
+  }, [room, scaleFactor]);
+
+  if (!geometry) return null;
+
+  return (
+    <mesh geometry={geometry} position={[0, 0, 0]} userData={{ roomId: room.id }}>
+      <meshStandardMaterial
+        color={FLOOR_COLORS[room.type] ?? FLOOR_COLORS.unknown}
+        roughness={0.8}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CeilingMesh — same shape at y = CEILING_HEIGHT_M
+// ---------------------------------------------------------------------------
+
+export function CeilingMesh({ room, scaleFactor }: RoomMeshProps) {
+  const geometry = useMemo(() => {
+    if (room.polygon.length < 3) return null;
+
+    const verts = room.polygon.map(([x, y]) =>
+      pdfToThree(toCm(x, scaleFactor), toCm(y, scaleFactor)),
+    );
+
+    const shape = new THREE.Shape();
+    shape.moveTo(verts[0].x, verts[0].z);
+    for (let i = 1; i < verts.length; i++) {
+      shape.lineTo(verts[i].x, verts[i].z);
+    }
+    shape.closePath();
+
+    const geom = new THREE.ShapeGeometry(shape);
+    geom.rotateX(-Math.PI / 2);
+    return geom;
+  }, [room, scaleFactor]);
+
+  if (!geometry) return null;
+
+  return (
+    <mesh geometry={geometry} position={[0, CEILING_HEIGHT_M, 0]} userData={{ roomId: room.id }}>
+      <meshStandardMaterial color="#ffffff" roughness={0.9} side={THREE.BackSide} />
+    </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // FloorplanScene
 // ---------------------------------------------------------------------------
 
@@ -127,6 +203,18 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
       <directionalLight position={[center.x + 10, 20, center.z - 10]} intensity={0.6} />
 
       <WallGroup walls={data.walls} scaleFactor={data.scale_factor} />
+
+      <group name="floors">
+        {data.rooms.map((r) => (
+          <FloorMesh key={r.id} room={r} scaleFactor={data.scale_factor} />
+        ))}
+      </group>
+
+      <group name="ceilings">
+        {data.rooms.map((r) => (
+          <CeilingMesh key={`ceil-${r.id}`} room={r} scaleFactor={data.scale_factor} />
+        ))}
+      </group>
     </Canvas>
   );
 }
