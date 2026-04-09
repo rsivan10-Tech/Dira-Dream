@@ -244,7 +244,10 @@ def detect_area_annotations(texts: list[dict]) -> dict:
     balcony_area: float | None = None
     area_values: list[dict] = []
 
-    # First pass: collect all area values with their textual context
+    _NUM_ONLY = re.compile(r'^(\d+(?:\.\d+)?)$')
+    _SQM_UNIT = re.compile(r'^(?:מ"ר|מ״ר|m²|sqm)$')
+
+    # First pass: collect area values from same-span "number + unit" patterns
     for i, t in enumerate(texts):
         content = t["content"]
         match = _AREA_SQM_PATTERN.search(content)
@@ -257,6 +260,39 @@ def detect_area_annotations(texts: list[dict]) -> dict:
             "context": content,
             "bbox": t["bbox"],
         })
+
+    # Pass 1b: Handle split spans — find "מ"ר" labels and look for
+    # nearby standalone number spans (within ~30pt vertically).
+    for i, t in enumerate(texts):
+        if not _SQM_UNIT.match(t["content"].strip()):
+            continue
+        unit_bbox = t["bbox"]
+        # unit_y = vertical center of the unit label
+        unit_y = (unit_bbox[1] + unit_bbox[3]) / 2
+        unit_x = (unit_bbox[0] + unit_bbox[2]) / 2
+
+        # Look for nearby standalone numbers (same row, within 80pt horizontally)
+        for j, t2 in enumerate(texts):
+            if j == i:
+                continue
+            nm = _NUM_ONLY.match(t2["content"].strip())
+            if not nm:
+                continue
+            val = float(nm.group(1))
+            if val < 1.0 or val > 500.0:
+                continue
+            num_bbox = t2["bbox"]
+            num_y = (num_bbox[1] + num_bbox[3]) / 2
+            num_x = (num_bbox[0] + num_bbox[2]) / 2
+            # Same row (within 15pt vertically) and close horizontally
+            if abs(num_y - unit_y) < 15 and abs(num_x - unit_x) < 80:
+                # Check not already collected
+                if not any(abs(av["value"] - val) < 0.01 for av in area_values):
+                    area_values.append({
+                        "value": val,
+                        "context": f"{t2['content']} {t['content']}",
+                        "bbox": num_bbox,
+                    })
 
     # Second pass: look for contextual keywords near area values.
     # Check current text first; only fall back to adjacent spans if no
@@ -288,6 +324,33 @@ def detect_area_annotations(texts: list[dict]) -> dict:
         if has_balcony_ctx and balcony_area is None:
             balcony_area = value
             logger.info("Balcony area detected: %.1f sqm (source: %r)", value, content)
+
+    # Third pass: spatial context for split-span area values.
+    # For each collected area value, look for "דירה" or "מרפסת" labels
+    # in the same row (within 30pt vertically).
+    if total_area is None or balcony_area is None:
+        _TOTAL_LABEL = re.compile(r'דירה|עיקרי|כולל|נטו|ברוטו')
+        _BALCONY_LABEL = re.compile(r'מרפסת|מרפסות')
+        for av in area_values:
+            if av["value"] < 5 or av["value"] > 300:
+                continue
+            av_y = (av["bbox"][1] + av["bbox"][3]) / 2 if len(av["bbox"]) == 4 else av["bbox"][1]
+            for t in texts:
+                t_y = (t["bbox"][1] + t["bbox"][3]) / 2 if len(t["bbox"]) == 4 else t["bbox"][1]
+                if abs(t_y - av_y) > 30:
+                    continue
+                if total_area is None and _TOTAL_LABEL.search(t["content"]):
+                    total_area = av["value"]
+                    logger.info("Total area (spatial): %.1f sqm near %r", av["value"], t["content"])
+                    break  # stop checking more labels for this value
+                if balcony_area is None and _BALCONY_LABEL.search(t["content"]):
+                    balcony_area = av["value"]
+                    logger.info("Balcony area (spatial): %.1f sqm near %r", av["value"], t["content"])
+                    break
+
+    # Sanity: balcony can't be >= total area
+    if total_area and balcony_area and balcony_area >= total_area:
+        balcony_area = None
 
     return {
         "total_area_sqm": total_area,

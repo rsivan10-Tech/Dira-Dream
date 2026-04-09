@@ -428,6 +428,20 @@ async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
             scale_value=pre_crop_metadata.get("scale_value"),
             total_area_sqm=pre_crop_metadata.get("total_area_sqm"),
             balcony_area_sqm=pre_crop_metadata.get("balcony_area_sqm"),
+            area_values=[
+                AreaValueResponse(
+                    value=av["value"], context=av["context"],
+                    bbox=list(av["bbox"]),
+                )
+                for av in pre_crop_metadata.get("area_values", [])
+            ],
+            fixture_labels=[
+                FixtureLabelResponse(
+                    label=fl["label"], bbox=list(fl["bbox"]),
+                    font_size=fl["font_size"],
+                )
+                for fl in pre_crop_metadata.get("fixture_labels", [])
+            ],
         )
 
         # Overall confidence

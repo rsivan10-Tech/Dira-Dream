@@ -362,12 +362,29 @@ function Sidebar({
   if (!selection) {
     // Overview stats
     const totalArea = data.rooms.reduce((sum, r) => sum + r.area_sqm, 0);
+    const stated = data.stated_area_sqm;
+    const deviationPct = stated && totalArea > 0
+      ? Math.abs(totalArea - stated) / stated * 100
+      : null;
+
     return (
       <div className="fp-sidebar-section">
         <h3>{fmt('sidebar.overview')}</h3>
         <dl>
-          <dt>{fmt('sidebar.totalArea')}</dt>
+          <dt>{fmt('sidebar.calculatedArea')}</dt>
           <dd>{totalArea.toFixed(1)} {fmt('common.sqm')}</dd>
+          {stated != null && (
+            <>
+              <dt>{fmt('sidebar.statedArea')}</dt>
+              <dd>{stated.toFixed(1)} {fmt('common.sqm')}</dd>
+            </>
+          )}
+          {data.stated_balcony_sqm != null && (
+            <>
+              <dt>{fmt('sidebar.balconyArea')}</dt>
+              <dd>{data.stated_balcony_sqm.toFixed(1)} {fmt('common.sqm')}</dd>
+            </>
+          )}
           <dt>{fmt('sidebar.roomCount')}</dt>
           <dd>{data.rooms.length}</dd>
           <dt>{fmt('sidebar.wallCount')}</dt>
@@ -377,6 +394,19 @@ function Sidebar({
             <ConfidenceBadge score={data.confidence} />
           </dd>
         </dl>
+        {deviationPct != null && deviationPct > 10 && (
+          <div style={{
+            background: '#fff3e0',
+            border: '1px solid #ff9800',
+            borderRadius: 6,
+            padding: '6px 10px',
+            fontSize: '0.82rem',
+            color: '#e65100',
+            marginBlockStart: 8,
+          }}>
+            {fmt('sidebar.areaDeviation')} ({deviationPct.toFixed(0)}%)
+          </div>
+        )}
         {data.rooms.length === 0 && (
           <p style={{ color: '#999', marginBlockStart: 12 }}>{fmt('viewer.noRooms')}</p>
         )}
@@ -759,6 +789,8 @@ function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
     page_size: raw.page_size,
     scale_factor: raw.scale_factor,
     texts,
+    stated_area_sqm: raw.metadata?.total_area_sqm ?? null,
+    stated_balcony_sqm: raw.metadata?.balcony_area_sqm ?? null,
   };
 }
 

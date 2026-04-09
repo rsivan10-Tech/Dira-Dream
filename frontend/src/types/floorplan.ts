@@ -128,6 +128,8 @@ export interface FloorplanData {
   page_size: { width: number; height: number };
   scale_factor: number;          // PDF points → metres
   texts: TextAnnotation[];
+  stated_area_sqm: number | null;    // from PDF legend/metadata
+  stated_balcony_sqm: number | null; // from PDF legend/metadata
 }
 
 // ---------------------------------------------------------------------------

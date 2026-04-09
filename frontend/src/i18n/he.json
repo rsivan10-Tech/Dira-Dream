@@ -55,6 +55,10 @@
   "viewer.scaleNeeded": "נדרשת הגדרת קנה מידה",
 
   "sidebar.overview": "סקירה כללית",
+  "sidebar.calculatedArea": "שטח מחושב",
+  "sidebar.statedArea": "שטח לפי תוכנית",
+  "sidebar.balconyArea": "שטח מרפסות",
+  "sidebar.areaDeviation": "סטייה מהתוכנית המקורית",
   "sidebar.totalArea": "שטח כולל",
   "sidebar.roomCount": "מספר חדרים",
   "sidebar.wallCount": "מספר קירות",
