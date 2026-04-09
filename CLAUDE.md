@@ -6,7 +6,7 @@ Backend: Python 3.12+FastAPI | Frontend: React 18+TS+Vite | 2D: Konva.js
 AI: Claude Opus 4.6 | DB: PostgreSQL+PostGIS | Auth: Supabase
 
 ## Current Phase
-Phase: 1 | Sprint: 3 | Module: room-detection | Branch: feature/phase1-room-detection
+Phase: 1 COMPLETE | Sprint: 4 | Tag: v0.1.0-phase1 | Branch: develop
 
 ## Plan-Execute-Verify (MANDATORY)
 PLAN: state what you build, files, algorithm, edge cases, tests. WAIT for approval.
@@ -135,6 +135,37 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - **Samples 3, 4**: Detect rooms but areas are tiny (7.8 / 5.9 sqm total) — faces forming but too small, similar root cause.
 - **Best results**: Sample 9 (7 rooms, 46 sqm, mamad found), Sample 5.0 (7 rooms, 141 sqm).
 - **Open issues**: mamad/text conflict, window over-detection, arc tagging, scale auto-detection, dense-graph face merging for Samples 0/1/6.
+
+## Phase 1 Completion (v0.1.0-phase1, 2026-04-09)
+
+### What works
+- **Full pipeline**: PDF upload → extract → crop → heal → graph → rooms → classify → structural → render
+- **2D renderer**: Konva.js with walls (colored by type), room polygons + Hebrew labels, doors, windows
+- **Interactions**: pan/zoom, hover tooltips, click selection, sidebar details, measurement tool
+- **10 Israeli room types**: salon, bedroom, kitchen, guest_toilet, bathroom, mamad, sun_balcony, service_balcony, storage, utility
+- **Structural classification**: exterior (dark red), mamad (orange), partition (blue)
+- **Scale detection**: auto-detects 1:50 / 1:100 from PDF text
+- **Area metadata**: extracts stated area from PDF legend (split-span support)
+- **Area display**: interior vs balcony split per Israeli standard
+- **Multi-page PDF**: page selector for PDFs with multiple apartment types
+- **Confidence dashboard**: overall score, room/wall/opening counts, action items
+- **Export**: CSV room schedule, PNG
+- **Hebrew RTL**: all UI text via react-intl, sidebar LEFT, canvas RIGHT
+
+### Known limitations (deferred to Phase 2)
+- **Room coverage gap**: 7/10 PDFs produce rooms but only ~50-70% of actual rooms detected (unclosed wall polygons)
+- **Door over-detection**: 11-42 doors per page (expected 6-10). Stairwell doors included.
+- **Legend/kartisiyyah not always cropped**: some PDFs retain legend segments as noise
+- **3 PDFs still fail room detection**: Samples 0, 1, 6 (dense graph, 10K+ segments → tiny mesh faces)
+- **Dashboard "0 structural" display**: exterior walls render correctly as red but dashboard counts them separately from "structural" category
+- **Area accuracy**: ~50% gap between calculated and stated area due to missing rooms
+
+### Architecture
+- `/api/extract` — raw extraction only (for debug viewer)
+- `/api/analyze` — full pipeline: extract → heal → rooms → structural
+- `FloorplanViewer` — controlled component, data lifted to App.tsx
+- `floorplanUtils.ts` — shared AnalyzeResponse → FloorplanData converter
+- 10 room types defined in `models.py`, enforced in `classify_rooms` post-processing
 
 ## Test PDF Inventory
 
