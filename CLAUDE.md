@@ -47,6 +47,21 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 ## Known Edge Cases
 - [2026-04-09] Stroke widths in real Israeli PDFs are 0.1-1.1pt, not the 3.0-5.0pt assumed in conventions doc. Must use RELATIVE thresholds from histogram peaks, not absolute values. Status: open.
 - [2026-04-09] crop_legend fails when thick segments span full page width. Need fallback strategy (e.g., text density detection or user-drawn crop rectangle). Status: open, deferred to Sprint 4 fallback UI.
+- [2026-04-09] crop_legend only effective on 2/10 test PDFs (Samples 0, 6). Most have thick segments spanning full page. Fallback needed in Sprint 4.
+- [2026-04-09] Samples 7 and 8 are identical files. Use only one for testing.
+- [2026-04-09] Sample 0 has 15,936 segments — may be a multi-apartment floor plan, not single unit. Verify.
+- [2026-04-09] Sample 5 has only 44 texts but 3,781 segments — unusually low text-to-segment ratio. May need special handling.
 
 ## Test PDF Inventory
-(track: file, source, rooms, issues, status)
+| # | File | Segments | Texts | Width Range | Peaks | Crop % | Status |
+|---|------|----------|-------|-------------|-------|--------|--------|
+| 0 | MCH-208-Floors-Type D 1-50 | 15,936 | 212 | 0.10–0.72 | 4 | 29.4% | Pass |
+| 1 | דירה-2-תוכנית | 3,846 | 168 | 0.10–2.16 | 5 | 0.0% | Pass |
+| 2 | תכניות-מכר-דירתי | 7,134 | 185 | 0.10–1.70 | 7 | 0.1% | Pass |
+| 3 | בניין-2-דירות | 3,406 | 351 | 0.10–1.12 | 5 | 4.9% | Pass |
+| 4 | לאטי-קדימה | 10,203 | 1,140 | 0.10–1.15 | 7 | 0.0% | Pass |
+| 5 | 4-Rooms-Newer2 | 3,781 | 44 | 0.10–1.10 | 8 | 0.1% | Pass |
+| 6 | build9-J-plan | 7,887 | 123 | 0.10–2.76 | 8 | 11.0% | Pass |
+| 7 | build12-A-plan (1) | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 8 |
+| 8 | build12-A-plan | 4,239 | 492 | 0.10–1.71 | 9 | 0.1% | Pass — duplicate of 7 |
+| 9 | vector sample | 4,673 | 212 | 0.10–1.64 | 6 | 0.0% | Pass |
