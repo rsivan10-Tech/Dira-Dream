@@ -19,6 +19,7 @@ from geometry.healing import (
     filter_non_wall_segments,
     heal_geometry,
     merge_collinear,
+    reconnect_components,
     remove_duplicates,
     snap_endpoints,
     split_at_intersections,
@@ -522,3 +523,117 @@ class TestHealGeometry:
         val = report["validation"]
         assert val["connected_components"] >= 1
         assert val["total_segments"] > 0
+
+        # Reconnect step should be in the report
+        assert "reconnect" in report
+
+
+# ===========================================================================
+# reconnect_components tests
+# ===========================================================================
+
+
+class TestReconnectComponents:
+
+    def test_bridges_nearby_components(self):
+        """Two rectangles 4pt apart should be bridged (tolerance=6)."""
+        segments = [
+            # Rectangle 1
+            _seg((0, 0), (50, 0)),
+            _seg((50, 0), (50, 50)),
+            _seg((50, 50), (0, 50)),
+            _seg((0, 50), (0, 0)),
+            # Rectangle 2, 4pt gap to the right
+            _seg((54, 0), (100, 0)),
+            _seg((100, 0), (100, 50)),
+            _seg((100, 50), (54, 50)),
+            _seg((54, 50), (54, 0)),
+        ]
+        result, report = reconnect_components(segments, tolerance=6.0)
+
+        assert report["components_before"] == 2
+        assert report["components_after"] == 1
+        assert report["bridges_created"] >= 1
+        assert report["largest_component_ratio_after"] == 1.0
+
+    def test_no_bridge_when_too_far(self):
+        """Two rectangles 20pt apart should NOT be bridged (tolerance=6)."""
+        segments = [
+            _seg((0, 0), (50, 0)),
+            _seg((50, 0), (50, 50)),
+            _seg((50, 50), (0, 50)),
+            _seg((0, 50), (0, 0)),
+            # Far away
+            _seg((200, 200), (250, 200)),
+            _seg((250, 200), (250, 250)),
+            _seg((250, 250), (200, 250)),
+            _seg((200, 250), (200, 200)),
+        ]
+        result, report = reconnect_components(segments, tolerance=6.0)
+
+        assert report["components_before"] == 2
+        assert report["components_after"] == 2
+        assert report["bridges_created"] == 0
+
+    def test_single_component_unchanged(self):
+        """Already-connected graph should not be modified."""
+        segments = [
+            _seg((0, 0), (50, 0)),
+            _seg((50, 0), (50, 50)),
+            _seg((50, 50), (0, 50)),
+            _seg((0, 50), (0, 0)),
+        ]
+        result, report = reconnect_components(segments, tolerance=6.0)
+
+        assert report["components_before"] == 1
+        assert report["bridges_created"] == 0
+        assert len(result) == len(segments)
+
+    def test_three_components_merged(self):
+        """Three nearby components should all merge into one."""
+        segments = [
+            # Comp 1
+            _seg((0, 0), (40, 0)),
+            _seg((40, 0), (40, 40)),
+            _seg((40, 40), (0, 40)),
+            _seg((0, 40), (0, 0)),
+            # Comp 2 (3pt right of comp 1)
+            _seg((43, 0), (80, 0)),
+            _seg((80, 0), (80, 40)),
+            _seg((80, 40), (43, 40)),
+            _seg((43, 40), (43, 0)),
+            # Comp 3 (3pt right of comp 2)
+            _seg((83, 0), (120, 0)),
+            _seg((120, 0), (120, 40)),
+            _seg((120, 40), (83, 40)),
+            _seg((83, 40), (83, 0)),
+        ]
+        result, report = reconnect_components(segments, tolerance=6.0)
+
+        assert report["components_before"] == 3
+        assert report["components_after"] == 1
+        assert report["bridges_created"] >= 2
+
+    def test_empty_input(self):
+        """Empty segment list returns empty."""
+        result, report = reconnect_components([], tolerance=6.0)
+
+        assert result == []
+        assert report["bridges_created"] == 0
+
+    def test_largest_component_ratio_improves(self):
+        """After bridging, the largest component ratio should increase."""
+        # Big component (4 segs) + small component (4 segs) 5pt apart
+        segments = [
+            _seg((0, 0), (100, 0)),
+            _seg((100, 0), (100, 100)),
+            _seg((100, 100), (0, 100)),
+            _seg((0, 100), (0, 0)),
+            _seg((105, 0), (150, 0)),
+            _seg((150, 0), (150, 50)),
+            _seg((150, 50), (105, 50)),
+            _seg((105, 50), (105, 0)),
+        ]
+        result, report = reconnect_components(segments, tolerance=6.0)
+
+        assert report["largest_component_ratio_after"] > report["largest_component_ratio_before"]

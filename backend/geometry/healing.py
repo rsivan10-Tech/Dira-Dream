@@ -949,6 +949,181 @@ def _second_pass_gap_fill(
 
 
 # ---------------------------------------------------------------------------
+# POST-HEAL: reconnect disconnected components via bridge segments
+# ---------------------------------------------------------------------------
+
+def reconnect_components(
+    segments: list[dict],
+    tolerance: float = 6.0,
+    max_bridges: int = 200,
+) -> tuple[list[dict], dict]:
+    """
+    Bridge disconnected graph components by connecting nearby dead-end nodes.
+
+    After healing, the wall graph may split into many disconnected components
+    (e.g. 41 components on Sample 0). This step finds degree-1 (dead-end)
+    nodes in the largest component and searches for the nearest node in ANY
+    other component within `tolerance`. If found, a bridge segment is created
+    to merge the components.
+
+    The process iterates: after each round of bridging, components are
+    recomputed and the next round targets the updated largest component.
+
+    Parameters
+    ----------
+    segments : list[dict]
+        Healed wall segments.
+    tolerance : float
+        Maximum distance (PDF points) to bridge between components.
+        Default 6.0 = 2× SNAP_TOLERANCE.
+    max_bridges : int
+        Safety limit on total bridge segments created.
+
+    Returns
+    -------
+    segments : list[dict]
+        Segments with bridge segments appended.
+    report : dict
+        Statistics: bridges_created, components_before, components_after,
+        largest_component_ratio_before, largest_component_ratio_after.
+    """
+    if not segments:
+        return [], {
+            "bridges_created": 0,
+            "components_before": 0, "components_after": 0,
+            "largest_component_ratio_before": 0.0,
+            "largest_component_ratio_after": 0.0,
+        }
+
+    # Build initial graph
+    G = nx.Graph()
+    for seg in segments:
+        p1 = _point_key(seg["start"])
+        p2 = _point_key(seg["end"])
+        if p1 != p2:
+            G.add_edge(p1, p2, width=seg.get("stroke_width", 0.0))
+
+    components_before = nx.number_connected_components(G)
+    if components_before <= 1:
+        ratio = 1.0 if G.number_of_nodes() > 0 else 0.0
+        return segments, {
+            "bridges_created": 0,
+            "components_before": 1, "components_after": 1,
+            "largest_component_ratio_before": ratio,
+            "largest_component_ratio_after": ratio,
+        }
+
+    largest_before = max(len(c) for c in nx.connected_components(G)) / len(G.nodes())
+
+    # Compute median stroke width for bridge segments
+    widths = [s.get("stroke_width", 0.0) for s in segments if s.get("stroke_width", 0.0) > 0]
+    median_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+
+    bridges_created = 0
+    new_segments = list(segments)
+
+    # Iterate: each round may merge multiple components
+    for _round in range(10):  # max 10 rounds
+        # Rebuild graph with current segments
+        G = nx.Graph()
+        for seg in new_segments:
+            p1 = _point_key(seg["start"])
+            p2 = _point_key(seg["end"])
+            if p1 != p2:
+                G.add_edge(p1, p2, width=seg.get("stroke_width", 0.0))
+
+        components = list(nx.connected_components(G))
+        if len(components) <= 1:
+            break
+
+        # Identify the largest component
+        largest_comp = max(components, key=len)
+        other_comps = [c for c in components if c is not largest_comp]
+
+        # Collect all nodes in the largest component
+        largest_nodes = list(largest_comp)
+        largest_coords = np.array(largest_nodes)
+        largest_tree = KDTree(largest_coords)
+
+        # Collect all nodes in other components
+        other_nodes = []
+        other_comp_id = {}  # node -> component index
+        for ci, comp in enumerate(other_comps):
+            for node in comp:
+                other_nodes.append(node)
+                other_comp_id[node] = ci
+
+        if not other_nodes:
+            break
+
+        other_coords = np.array(other_nodes)
+
+        # For each node in other components, find nearest in largest
+        distances, indices = largest_tree.query(other_coords)
+
+        # Build candidate bridges: (distance, other_node, largest_node)
+        candidates = []
+        for i, (dist, idx) in enumerate(zip(distances, indices)):
+            if dist <= tolerance:
+                candidates.append((dist, other_nodes[i], largest_nodes[idx]))
+
+        # Sort by distance (closest first)
+        candidates.sort(key=lambda x: x[0])
+
+        # Bridge one node per other-component (the closest candidate)
+        bridged_comps: set[int] = set()
+        round_bridges = 0
+
+        for dist, other_node, largest_node in candidates:
+            if bridges_created >= max_bridges:
+                break
+
+            comp_id = other_comp_id[other_node]
+            if comp_id in bridged_comps:
+                continue
+
+            # Create bridge segment
+            bridge = {
+                "start": other_node,
+                "end": largest_node,
+                "stroke_width": median_width,
+                "color": (0.0, 0.0, 0.0),
+                "dash_pattern": "",
+            }
+            new_segments.append(bridge)
+            bridges_created += 1
+            round_bridges += 1
+            bridged_comps.add(comp_id)
+
+        if round_bridges == 0:
+            break  # No more bridges possible within tolerance
+
+    # Final validation
+    G_final = nx.Graph()
+    for seg in new_segments:
+        p1 = _point_key(seg["start"])
+        p2 = _point_key(seg["end"])
+        if p1 != p2:
+            G_final.add_edge(p1, p2)
+
+    components_after = nx.number_connected_components(G_final)
+    largest_after = (
+        max(len(c) for c in nx.connected_components(G_final)) / len(G_final.nodes())
+        if G_final.number_of_nodes() > 0 else 0.0
+    )
+
+    report = {
+        "bridges_created": bridges_created,
+        "components_before": components_before,
+        "components_after": components_after,
+        "largest_component_ratio_before": round(largest_before, 4),
+        "largest_component_ratio_after": round(largest_after, 4),
+    }
+
+    return new_segments, report
+
+
+# ---------------------------------------------------------------------------
 # FUNCTION 7: heal_geometry (pipeline)
 # ---------------------------------------------------------------------------
 
@@ -1037,7 +1212,15 @@ def heal_geometry(
     segs, gap_report = _second_pass_gap_fill(segs, config.snap_tolerance)
     full_report["gap_fill"] = gap_report
 
-    # Step 7: Validate
+    # Step 7: Reconnect disconnected components (bridge nearby fragments)
+    # Use 5× snap tolerance — real Israeli PDFs have 8-20pt gaps between
+    # wall fragments after pre-filter removes connecting non-wall segments.
+    segs, reconnect_report = reconnect_components(
+        segs, tolerance=config.snap_tolerance * 5,
+    )
+    full_report["reconnect"] = reconnect_report
+
+    # Step 8: Validate
     validation = validate_healed(segs)
     full_report["validation"] = validation
 
