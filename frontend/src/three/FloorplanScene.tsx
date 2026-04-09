@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { FloorplanData, Wall as WallData, Room as RoomData } from '@/types/floorplan';
 import {
@@ -198,9 +199,19 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
       dpr={[1, 2]}
       style={{ width: '100%', height: '100%', background: '#e8e8e8' }}
     >
-      {/* Minimal lighting so walls are visible */}
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[center.x + 10, 20, center.z - 10]} intensity={0.6} />
+      {/* Lighting */}
+      <ambientLight intensity={0.4} color="#ffffff" />
+      <directionalLight
+        position={[center.x + 10, 20, center.z - 10]}
+        intensity={0.6}
+        color="#ffffff"
+      />
+      {/* Secondary fill from opposite side to reduce harsh shadows */}
+      <directionalLight
+        position={[center.x - 8, 12, center.z + 8]}
+        intensity={0.25}
+        color="#f0f0ff"
+      />
 
       <WallGroup walls={data.walls} scaleFactor={data.scale_factor} />
 
@@ -215,6 +226,14 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
           <CeilingMesh key={`ceil-${r.id}`} room={r} scaleFactor={data.scale_factor} />
         ))}
       </group>
+
+      <OrbitControls
+        target={[center.x, CEILING_HEIGHT_M / 2, center.z]}
+        enableDamping
+        dampingFactor={0.05}
+        minDistance={1}
+        maxDistance={30}
+      />
     </Canvas>
   );
 }
