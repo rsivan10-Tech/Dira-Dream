@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Constants (configurable per VG rule #2)
 # ---------------------------------------------------------------------------
 
-EXTERIOR_DISTANCE_TOLERANCE = 5.0   # PDF points — max distance to envelope
+EXTERIOR_DISTANCE_TOLERANCE = 3.0   # PDF points — max distance to envelope
 MAMAD_AREA_MIN = 9.0                # sqm
 MAMAD_AREA_MAX = 15.0               # sqm
 MAMAD_THICKNESS_RATIO = 0.9         # Fraction of max thickness
@@ -92,19 +92,29 @@ def detect_exterior_walls(
         envelope = max(envelope.geoms, key=lambda p: p.area)
 
     boundary = envelope.exterior
+    # Buffer the boundary slightly to create a narrow band for matching
+    boundary_band = boundary.buffer(tolerance)
 
     exterior_walls: list[WallInfo] = []
     for seg in segments:
         seg_line = LineString([seg["start"], seg["end"]])
-        dist = seg_line.distance(boundary)
+        seg_len = seg_line.length
+        if seg_len < 2.0:
+            continue
 
-        if dist <= tolerance:
+        # Check what fraction of the segment lies within the boundary band.
+        # A wall is exterior only if MOST of it (>60%) sits on the envelope.
+        overlap = seg_line.intersection(boundary_band)
+        overlap_len = overlap.length if not overlap.is_empty else 0.0
+        fraction = overlap_len / seg_len
+
+        if fraction >= 0.75:
             exterior_walls.append(WallInfo(
                 segment=seg,
                 wall_type="exterior",
                 is_structural=True,
                 is_modifiable=False,
-                confidence=95.0,
+                confidence=min(95.0, 60.0 + fraction * 35.0),
             ))
 
     logger.info(

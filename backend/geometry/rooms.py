@@ -305,7 +305,46 @@ def classify_rooms(
         if best_type == "mamad":
             room.is_modifiable = False
 
+    # --- Post-classification sanity checks ---
+    _fix_oversize_balconies(rooms)
+    _enforce_single_mamad(rooms)
+
     return rooms
+
+
+def _fix_oversize_balconies(rooms: list[Room]) -> None:
+    """Reclassify balconies > 25 sqm as salon (living room)."""
+    MAX_BALCONY_SQM = 25.0
+    for room in rooms:
+        if room.room_type == "balcony" and room.area_sqm > MAX_BALCONY_SQM:
+            room.room_type = "salon"
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE.get("salon", "סלון")
+            room.confidence = max(room.confidence - 20, 40)
+            room.needs_review = True
+            logger.info(
+                "Reclassified oversize balcony (%.1f sqm) as salon",
+                room.area_sqm,
+            )
+
+
+def _enforce_single_mamad(rooms: list[Room]) -> None:
+    """An Israeli apartment has exactly one mamad. Keep the best candidate."""
+    mamads = [r for r in rooms if r.room_type == "mamad"]
+    if len(mamads) <= 1:
+        return
+
+    # Keep the one with highest confidence, tiebreak by area closest to 12 sqm
+    best = max(mamads, key=lambda r: (r.confidence, -abs(r.area_sqm - 12.0)))
+    for r in mamads:
+        if r is not best:
+            r.room_type = "bedroom"
+            r.room_type_he = DISPLAY_NAMES_EN_TO_HE.get("bedroom", "חדר שינה")
+            r.confidence = max(r.confidence - 30, 30)
+            r.needs_review = True
+            r.is_modifiable = True
+            logger.info(
+                "Demoted duplicate mamad (%.1f sqm) to bedroom", r.area_sqm,
+            )
 
 
 # ---------------------------------------------------------------------------
