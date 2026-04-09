@@ -61,39 +61,36 @@ def detect_exterior_walls(
     """
     Identify exterior (envelope) walls.
 
-    Strategy: build the union of all room polygons to get the apartment
-    envelope, then check which segments lie on or near the envelope boundary.
-
-    Parameters
-    ----------
-    segments : list[dict]
-        All wall segments.
-    rooms : list[Room]
-        Detected room polygons.
-    tolerance : float
-        Maximum distance from envelope boundary to count as exterior.
-
-    Returns
-    -------
-    list[WallInfo]
-        Segments classified as exterior walls.
+    Strategy: build the convex hull of all wall segment endpoints to
+    approximate the apartment boundary.  Segments whose midpoint lies
+    near the hull boundary are exterior.  This is more robust than
+    room-union envelope for apartments with fragmented room detection.
     """
-    if not rooms:
+    if not segments:
         return []
 
-    # Build apartment envelope from union of all room polygons
-    polys = [r.polygon for r in rooms if r.polygon.is_valid]
-    if not polys:
+    # Collect ALL endpoints
+    pts = []
+    for seg in segments:
+        pts.append(seg["start"])
+        pts.append(seg["end"])
+
+    if len(pts) < 6:
         return []
 
-    envelope = unary_union(polys)
-    if isinstance(envelope, MultiPolygon):
-        # Use the largest polygon as the main envelope
-        envelope = max(envelope.geoms, key=lambda p: p.area)
+    from shapely.geometry import MultiPoint
+    hull = MultiPoint(pts).convex_hull
+    if hull.is_empty or hull.geom_type == "Point":
+        return []
 
-    boundary = envelope.exterior
-    # Buffer the boundary slightly to create a narrow band for matching
-    boundary_band = boundary.buffer(tolerance)
+    hull_boundary = hull.exterior
+    # Shrink the hull inward to define the "interior" zone.
+    # Walls whose midpoint is OUTSIDE this shrunken interior are exterior.
+    # Use 5% of the hull's shortest dimension as the perimeter band width.
+    bx0, by0, bx1, by1 = hull.bounds
+    band_width = min(bx1 - bx0, by1 - by0) * 0.05
+    band_width = max(band_width, 10.0)  # at least 10pt
+    hull_interior = hull.buffer(-band_width)
 
     exterior_walls: list[WallInfo] = []
     for seg in segments:
@@ -102,23 +99,27 @@ def detect_exterior_walls(
         if seg_len < 2.0:
             continue
 
-        # Check what fraction of the segment lies within the boundary band.
-        # A wall is exterior only if MOST of it (>60%) sits on the envelope.
-        overlap = seg_line.intersection(boundary_band)
-        overlap_len = overlap.length if not overlap.is_empty else 0.0
-        fraction = overlap_len / seg_len
+        mid = Point(
+            (seg["start"][0] + seg["end"][0]) / 2,
+            (seg["start"][1] + seg["end"][1]) / 2,
+        )
 
-        if fraction >= 0.75:
+        # A wall is exterior if its midpoint is inside the hull
+        # but outside the shrunken interior (i.e., in the perimeter band).
+        in_hull = hull.contains(mid) or hull_boundary.distance(mid) < tolerance
+        in_interior = hull_interior.contains(mid) if not hull_interior.is_empty else False
+
+        if in_hull and not in_interior:
             exterior_walls.append(WallInfo(
                 segment=seg,
                 wall_type="exterior",
                 is_structural=True,
                 is_modifiable=False,
-                confidence=min(95.0, 60.0 + fraction * 35.0),
+                confidence=85.0,
             ))
 
     logger.info(
-        "Exterior walls: %d / %d segments on envelope boundary",
+        "Exterior walls: %d / %d segments on boundary",
         len(exterior_walls), len(segments),
     )
 
@@ -390,6 +391,10 @@ def detect_doors_and_windows(
     if arc_segments is None:
         arc_segments = []
 
+    # Note: stairwell door filtering deferred — requires identifying the
+    # stairwell area, which needs building-level analysis (Sprint 5+).
+    apt_boundary = None  # unused for now
+
     # Convert door/window ranges to PDF points
     if scale_factor > 0:
         door_min_pt = door_min_cm / (scale_factor * 100)  # cm -> m -> pdf pts
@@ -481,6 +486,10 @@ def detect_doors_and_windows(
                         dist, idx = arc_tree.query(mid)
                         if dist <= arc_tolerance:
                             swing = "detected"
+
+                    # Filter: door must be inside apartment boundary
+                    if apt_boundary and not apt_boundary.contains(Point(mid)):
+                        continue
 
                     # Find which rooms this opening connects
                     room_pair = _find_connected_rooms(mid, rooms)

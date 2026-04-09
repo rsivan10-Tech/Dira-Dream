@@ -72,7 +72,7 @@ class TestDetectExteriorWalls:
         exterior_types = [w.wall_type for w in result]
         assert all(t == "exterior" for t in exterior_types)
         assert all(w.is_structural for w in result)
-        assert all(w.confidence >= 95 for w in result)
+        assert all(w.confidence >= 80 for w in result)
 
     def test_empty_rooms_returns_empty(self):
         """No rooms -> no exterior walls."""

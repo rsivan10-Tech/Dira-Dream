@@ -22,18 +22,18 @@ import './FloorplanViewer.css';
 // ---------------------------------------------------------------------------
 
 const WALL_COLORS: Record<WallType, string> = {
-  exterior: '#333333',
-  structural: '#8B0000',
-  partition: '#2E78C2',
-  mamad: '#FF8C00',
-  unknown: '#999999',
+  exterior: '#8B0000',    // dark red — exterior = structural
+  structural: '#8B0000',  // dark red
+  partition: '#2E78C2',   // steel blue
+  mamad: '#FF8C00',       // orange
+  unknown: '#999999',     // grey
 };
 
 const WALL_WIDTH_MULTIPLIER: Record<WallType, number> = {
-  exterior: 2,
-  structural: 1.5,
+  exterior: 2.5,
+  structural: 2,
   partition: 1,
-  mamad: 2.5,
+  mamad: 3,
   unknown: 1,
 };
 
