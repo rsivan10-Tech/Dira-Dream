@@ -6,7 +6,7 @@ Backend: Python 3.12+FastAPI | Frontend: React 18+TS+Vite | 2D: Konva.js
 AI: Claude Opus 4.6 | DB: PostgreSQL+PostGIS | Auth: Supabase
 
 ## Current Phase
-Phase: 1 | Sprint: 1 | Module: pdf-extraction | Branch: feature/phase1-pdf-extraction
+Phase: 1 | Sprint: 2 | Module: geometry-healing | Branch: feature/phase1-geometry-healing
 
 ## Plan-Execute-Verify (MANDATORY)
 PLAN: state what you build, files, algorithm, edge cases, tests. WAIT for approval.
@@ -52,6 +52,47 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - [2026-04-09] Sample 5 is 2 pages (two 4-room variants). Split into Sample 5.0 and 5.1 locally (not in git — PDFs are gitignored).
 - [2026-04-09] isolate_apartment() exists in extraction.py (Shapely polygonize) but is NOT wired into the API pipeline. It's experimental — works on Sample 0 but too aggressive on others. Sprint 4 will replace with manual crop rectangle from user.
 - [2026-04-09] Many Israeli contractor PDFs render room labels as vector paths (letter outlines), not searchable text. get_text() returns 0 texts for these. Room classification will rely on fixture detection and area heuristics (Strategies B and C), not text matching. Some PDFs do have real text (Samples 3, 4 had 351 and 1,140 texts).
+- [2026-04-09] heal_geometry doors_preserved=0 on all test PDFs — arc_segments not passed from extraction pipeline (Bézier curves extracted as polyline fragments, not tagged as arcs). Door detection needs arc tagging in extract_vectors() or a post-hoc arc classifier. Status: open, Sprint 3.
+- [2026-04-09] Dead-end counts after healing are 10-100x higher than expected (1,898 / 495 / 659 vs expected 20-50 for door openings). Root cause: many near-miss endpoints beyond SNAP_TOLERANCE=3.0, plus dimension lines and annotation fragments surviving crop. Needs: (a) second-pass gap-fill for 3-15pt endpoints, (b) pre-healing filter for dimension/annotation lines by stroke width. Status: open.
+- [2026-04-09] split_at_intersections can inflate segment count significantly (Sample 0: 10K→17K). This is correct for planar graph construction but means the pre-split healing steps (snap, merge, dedup) must be aggressive enough to reduce count first.
+
+## Sprint 2 Healing Results (2026-04-09, ARC-validated)
+
+### Run 2 (with pre-filter + gap fill)
+
+| Metric | Sample 0 | Sample 6 | Sample 9 |
+|--------|----------|----------|----------|
+| Segments extracted | 15,936 | 7,887 | 4,673 |
+| After crop | 10,234 | 6,613 | 3,741 |
+| Pre-filter removed (dashed) | 0 | 0 | 0 |
+| Pre-filter removed (thin) | 9,223 | 5,975 | 3,137 |
+| Wall threshold (auto) | 0.54 | 0.66 | 0.71 |
+| Kept for healing | 1,011 | 638 | 604 |
+| After healing | 1,090 | 280 | 257 |
+| Snap clusters | 428 | 270 | 258 |
+| Collinear merges | 172 | 153 | 323 |
+| Duplicates removed | 16 | 31 | 43 |
+| Extensions made | 111 | 17 | 27 |
+| Gap fill (2nd pass) | 452 | 3 | 0 |
+| Connected components | 41 | 29 | 15 |
+| Largest component % | 46.9% | 44.6% | 79.8% |
+| Orphans | 14 | 15 | 6 |
+| Dead ends | 226 | 85 | 50 |
+
+### Dead end comparison (before → after fix)
+| Sample | Before | After | Reduction |
+|--------|--------|-------|-----------|
+| 0 | 1,898 | 226 | **-88%** |
+| 6 | 495 | 85 | **-83%** |
+| 9 | 659 | 50 | **-92%** |
+
+### ARC Verdict (updated)
+- Dead ends reduced 83-92% — primary blocker addressed.
+- Orphans reduced to 6-15 per sample (was 62-234).
+- Largest component % dropped (especially Samples 0, 6) because pre-filter removes many connecting non-wall segments. This is expected — wall-only graph is sparser but structurally cleaner.
+- Sample 9 best overall: 15 components, 79.8% largest, only 50 dead ends.
+- **Next blocker**: largest component ratio on Samples 0 and 6 is ~45% — may need to relax wall threshold or add a post-filter reconnection step in Sprint 3.
+- **Door detection gap** remains: arc_segments not wired in → 0 doors preserved. Sprint 3.
 
 ## Test PDF Inventory
 
