@@ -7,7 +7,7 @@ import { useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import type { FloorplanData, Wall as WallData, Room as RoomData } from '@/types/floorplan';
+import type { FloorplanData, Wall as WallData, Room as RoomData, Opening as OpeningData } from '@/types/floorplan';
 import {
   pdfToThree,
   CEILING_HEIGHT_M,
@@ -15,6 +15,8 @@ import {
   WALL_COLORS,
   FLOOR_COLORS,
 } from './coordinateUtils';
+import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
+import { mergeCollinearWalls, mergedToWall, filterDoorZones } from './wallMerger';
 
 /**
  * Tiny inset (1mm) applied to hole edges that coincide with the outer shape
@@ -22,7 +24,6 @@ import {
  * when hole vertices sit exactly on the outer contour (e.g. door sill at y=0).
  */
 const HOLE_INSET = 0.001;
-import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -202,33 +203,13 @@ function GlassPane({ opening, wallStart, wallEnd, wallLength, wallAngle }: Glass
 }
 
 // ---------------------------------------------------------------------------
-// DoorPanel — thin recessed panel for door openings
+// Door material (shared by DirectDoorGroup)
 // ---------------------------------------------------------------------------
 
 const doorMaterial = new THREE.MeshStandardMaterial({
   color: '#8B6914',
   roughness: 0.6,
 });
-
-function DoorPanel({ opening, wallStart, wallEnd, wallLength, wallAngle }: GlassPaneProps) {
-  const position = useMemo(() => {
-    const t = opening.offset / wallLength;
-    const x = wallStart.x + t * (wallEnd.x - wallStart.x);
-    const z = wallStart.z + t * (wallEnd.z - wallStart.z);
-    const y = opening.height / 2; // doors start at floor
-    return [x, y, z] as [number, number, number];
-  }, [opening, wallStart, wallEnd, wallLength]);
-
-  return (
-    <mesh
-      position={position}
-      rotation={[0, -wallAngle, 0]}
-      material={doorMaterial}
-    >
-      <boxGeometry args={[opening.width - 0.04, opening.height - 0.02, 0.03]} />
-    </mesh>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // WallGroup — all walls, toggleable as a layer
@@ -300,22 +281,100 @@ function OpeningsGroup({
     return result;
   }, [walls, scaleFactor, wallOpenings]);
 
-  return (
-    <group name="openings">
-      {items.map((item) => {
-        const { type, width } = item.opening;
-        // Wide "doors" (>1.4m) are likely balcony glass/sliding doors —
-        // render with glass pane instead of opaque wood panel.
-        const isGlassDoor =
-          (type === 'door' && width > 1.4) ||
-          type === 'french_door' ||
-          type === 'sliding_door';
+  // Only render window glass panes here.  Doors are rendered by
+  // DirectDoorGroup using endpoint positions directly from the API.
+  const windowItems = items.filter((item) => item.opening.type === 'window');
 
-        if (type === 'window' || isGlassDoor) {
-          return <GlassPane key={`glass-${item.opening.id}`} {...item} />;
-        }
-        return <DoorPanel key={`door-${item.opening.id}`} {...item} />;
-      })}
+  return (
+    <group name="window-glass">
+      {windowItems.map((item) => (
+        <GlassPane key={`glass-${item.opening.id}`} {...item} />
+      ))}
+    </group>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DirectDoorGroup — renders door panels directly from API endpoint positions.
+// Doors are gaps between wall segments.  The gap IS the opening; we just
+// render a thin panel in the gap for visual context.
+// ---------------------------------------------------------------------------
+
+import {
+  DOOR_HEIGHT_M,
+  GLASS_DOOR_HEIGHT_M,
+} from './coordinateUtils';
+
+interface DirectDoorGroupProps {
+  openings: OpeningData[];
+  scaleFactor: number;
+}
+
+function DirectDoorGroup({ openings, scaleFactor }: DirectDoorGroupProps) {
+  const doors = useMemo(() => {
+    const result: Array<{
+      id: string;
+      position: [number, number, number];
+      rotation: [number, number, number];
+      width: number;
+      height: number;
+      isGlass: boolean;
+    }> = [];
+
+    for (const op of openings) {
+      if (op.type === 'window') continue;
+      if (!op.endpoints) continue;
+
+      const [p1, p2] = op.endpoints;
+      const s = pdfToThree(toCm(p1.x, scaleFactor), toCm(p1.y, scaleFactor));
+      const e = pdfToThree(toCm(p2.x, scaleFactor), toCm(p2.y, scaleFactor));
+
+      const dx = e.x - s.x;
+      const dz = e.z - s.z;
+      const width = Math.sqrt(dx * dx + dz * dz);
+      const angle = Math.atan2(dz, dx);
+
+      const isGlass =
+        width > 1.4 ||
+        op.type === 'french_door' ||
+        op.type === 'sliding_door';
+      const height = isGlass ? GLASS_DOOR_HEIGHT_M : DOOR_HEIGHT_M;
+
+      result.push({
+        id: op.id,
+        position: [(s.x + e.x) / 2, height / 2, (s.z + e.z) / 2],
+        rotation: [0, -angle, 0],
+        width,
+        height,
+        isGlass,
+      });
+    }
+    return result;
+  }, [openings, scaleFactor]);
+
+  return (
+    <group name="doors">
+      {doors.map((d) =>
+        d.isGlass ? (
+          <mesh
+            key={`glass-door-${d.id}`}
+            position={d.position}
+            rotation={d.rotation}
+            material={glassMaterial}
+          >
+            <planeGeometry args={[d.width, d.height]} />
+          </mesh>
+        ) : (
+          <mesh
+            key={`door-${d.id}`}
+            position={d.position}
+            rotation={d.rotation}
+            material={doorMaterial}
+          >
+            <boxGeometry args={[d.width - 0.04, d.height - 0.02, 0.04]} />
+          </mesh>
+        ),
+      )}
     </group>
   );
 }
@@ -408,9 +467,47 @@ interface SceneLayout {
 
 /** Compute filtered walls, opening matching, centroid, and auto-fit camera position. */
 function computeLayout(data: FloorplanData): SceneLayout {
-  const filteredWalls = getWallsFor3D(data);
+  const rawFiltered = getWallsFor3D(data);
 
-  // Match openings to walls
+  // 1. Remove wall fragments inside door openings.  The door gap between
+  //    segments IS the opening — we just need to clear fragments that block it.
+  const afterDoorFilter = filterDoorZones(rawFiltered, data.openings);
+
+  // 2. Merge collinear wall segments into continuous walls for 3D rendering.
+  //    The healing pipeline splits walls at every intersection, producing
+  //    hundreds of tiny fragments too short to cut window holes into.
+  const merged = mergeCollinearWalls(afterDoorFilter);
+  let mergedWalls = merged.map(mergedToWall);
+
+  // Remove outliers: walls whose midpoint is far from the apartment centroid.
+  // Catches stairwell elements, legend fragments, and neighbor outlines that
+  // survived the largest-component filter.
+  if (mergedWalls.length > 4) {
+    const midpoints = mergedWalls.map((w) => ({
+      x: (w.start.x + w.end.x) / 2,
+      y: (w.start.y + w.end.y) / 2,
+    }));
+    const cx = midpoints.reduce((s, p) => s + p.x, 0) / midpoints.length;
+    const cy = midpoints.reduce((s, p) => s + p.y, 0) / midpoints.length;
+    const dists = midpoints.map((p) =>
+      Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2),
+    );
+    // Threshold: median distance × 2.5
+    const sorted = [...dists].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const threshold = median * 2.5;
+    const before = mergedWalls.length;
+    mergedWalls = mergedWalls.filter((_, i) => dists[i] <= threshold);
+    if (mergedWalls.length < before) {
+      console.log(
+        `[3D] Outlier filter: removed ${before - mergedWalls.length} distant walls (threshold=${threshold.toFixed(0)}pt)`,
+      );
+    }
+  }
+
+  const filteredWalls = mergedWalls;
+
+  // Match openings to merged walls (now long enough for proper hole-cutting)
   const wallOpenings = matchOpeningsToWalls(
     filteredWalls,
     data.openings,
@@ -503,6 +600,11 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
         walls={layout.filteredWalls}
         scaleFactor={data.scale_factor}
         wallOpenings={layout.wallOpenings}
+      />
+
+      <DirectDoorGroup
+        openings={data.openings}
+        scaleFactor={data.scale_factor}
       />
 
       <group name="floors">

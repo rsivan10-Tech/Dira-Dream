@@ -168,11 +168,17 @@ export function matchOpeningsToWalls(
     }
 
     if (!bestWall || bestDist > MATCH_THRESHOLD_M) {
-      console.warn(
-        `[3D] Opening ${opening.id} (${opening.type}) not matched to any wall — ` +
-        `nearest distance: ${bestDist.toFixed(3)}m`,
-      );
       continue;
+    }
+
+    // Windows should only appear on exterior/mamad walls (not partition).
+    // The parallel-line window detector produces many false positives on
+    // interior furniture and annotation lines.
+    if (opening.type === 'window') {
+      const matchedWallData = walls.find((w) => w.id === bestWall!.id);
+      if (matchedWallData && matchedWallData.wall_type === 'partition') {
+        continue;
+      }
     }
 
     const widthM = opening.width_cm / 100;
