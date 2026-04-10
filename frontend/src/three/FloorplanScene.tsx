@@ -3,7 +3,7 @@
  * Converts Phase 1 2D plan data (walls, rooms) into a 3D scene.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -14,9 +14,17 @@ import {
   WALL_THICKNESS_M,
   WALL_COLORS,
   FLOOR_COLORS,
+  CEILING_COLOR,
+  BASEBOARD_COLOR,
+  BASEBOARD_HEIGHT_M,
 } from './coordinateUtils';
 import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
 import { mergeCollinearWalls, mergedToWall, filterDoorZones } from './wallMerger';
+import FirstPersonController, { computeStartPosition } from './FirstPersonController';
+import CameraTransition from './CameraTransition';
+import SceneToolbar, { type ViewMode } from './SceneToolbar';
+import Minimap from './Minimap';
+import MobileControls, { isMobileDevice } from './MobileControls';
 
 /**
  * Tiny inset (1mm) applied to hole edges that coincide with the outer shape
@@ -219,11 +227,12 @@ interface WallGroupProps {
   walls: WallData[];
   scaleFactor: number;
   wallOpenings: Map<string, OpeningOnWall[]>;
+  groupRef?: React.RefObject<THREE.Group | null>;
 }
 
-function WallGroup({ walls, scaleFactor, wallOpenings }: WallGroupProps) {
+function WallGroup({ walls, scaleFactor, wallOpenings, groupRef }: WallGroupProps) {
   return (
-    <group name="walls">
+    <group name="walls" ref={groupRef as React.Ref<THREE.Group>}>
       {walls.map((w) => {
         const openings = wallOpenings.get(w.id);
         return (
@@ -449,8 +458,67 @@ export function CeilingMesh({ room, scaleFactor }: RoomMeshProps) {
 
   return (
     <mesh geometry={geometry} position={[0, CEILING_HEIGHT_M, 0]} userData={{ roomId: room.id }}>
-      <meshStandardMaterial color="#ffffff" roughness={0.9} side={THREE.BackSide} />
+      <meshStandardMaterial color={CEILING_COLOR} roughness={0.9} side={THREE.BackSide} />
     </mesh>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BaseboardGroup — thin dark strip where walls meet floor
+// ---------------------------------------------------------------------------
+
+const baseboardMaterial = new THREE.MeshStandardMaterial({
+  color: BASEBOARD_COLOR,
+  roughness: 0.7,
+});
+
+function BaseboardGroup({
+  walls,
+  scaleFactor,
+}: {
+  walls: WallData[];
+  scaleFactor: number;
+}) {
+  const baseboards = useMemo(() => {
+    return walls
+      .map((w) => {
+        const s = pdfToThree(toCm(w.start.x, scaleFactor), toCm(w.start.y, scaleFactor));
+        const e = pdfToThree(toCm(w.end.x, scaleFactor), toCm(w.end.y, scaleFactor));
+        const dx = e.x - s.x;
+        const dz = e.z - s.z;
+        const length = Math.sqrt(dx * dx + dz * dz);
+        if (length < 0.01) return null;
+        const angle = Math.atan2(dz, dx);
+        const thickness = (WALL_THICKNESS_M[w.wall_type] ?? WALL_THICKNESS_M.unknown) + 0.01;
+        return { s, e, length, angle, thickness, id: w.id };
+      })
+      .filter(Boolean) as Array<{
+      s: { x: number; z: number };
+      e: { x: number; z: number };
+      length: number;
+      angle: number;
+      thickness: number;
+      id: string;
+    }>;
+  }, [walls, scaleFactor]);
+
+  return (
+    <group name="baseboards">
+      {baseboards.map((b) => (
+        <mesh
+          key={`baseboard-${b.id}`}
+          position={[
+            (b.s.x + b.e.x) / 2,
+            BASEBOARD_HEIGHT_M / 2,
+            (b.s.z + b.e.z) / 2,
+          ]}
+          rotation={[0, -b.angle, 0]}
+          material={baseboardMaterial}
+        >
+          <boxGeometry args={[b.length, BASEBOARD_HEIGHT_M, b.thickness]} />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
@@ -591,66 +659,236 @@ interface FloorplanSceneProps {
 export default function FloorplanScene({ data }: FloorplanSceneProps) {
   const layout = useMemo(() => computeLayout(data), [data]);
 
-  return (
-    <Canvas
-      camera={{
-        position: layout.cameraPos.toArray(),
+  // View mode state (lifted above Canvas so overlays can read it)
+  const [viewMode, setViewMode] = useState<ViewMode>('overview');
+  const [transitioning, setTransitioning] = useState(false);
+
+  // Camera state for minimap
+  const [cameraState, setCameraState] = useState({ x: 0, z: 0, yaw: 0 });
+
+  // Wall group ref for collision detection
+  const wallGroupRef = useRef<THREE.Group>(null);
+
+  // Mobile input refs (shared between MobileControls and FirstPersonController)
+  const moveInputRef = useRef({ x: 0, z: 0 });
+  const lookInputRef = useRef({ yaw: 0, pitch: 0 });
+
+  // Teleport ref — written by minimap click, consumed by FirstPersonController
+  const teleportRef = useRef<{ x: number; z: number } | null>(null);
+
+  const isMobile = useMemo(() => isMobileDevice(), []);
+
+  // Start position for walkthrough (largest room centroid)
+  const startPosition = useMemo(
+    () => computeStartPosition(data.rooms, data.scale_factor),
+    [data.rooms, data.scale_factor],
+  );
+
+  // Transition targets (state, not ref — used during render)
+  const [transitionTarget, setTransitionTarget] = useState<{
+    position: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    fov: number;
+    nextMode: ViewMode;
+  } | null>(null);
+
+  const handleToggleMode = useCallback(() => {
+    if (transitioning) return;
+
+    const nextMode: ViewMode = viewMode === 'overview' ? 'walkthrough' : 'overview';
+
+    if (nextMode === 'walkthrough') {
+      // Transition to first-person position
+      const q = new THREE.Quaternion();
+      q.setFromEuler(new THREE.Euler(0, 0, 0, 'YXZ'));
+      setTransitionTarget({
+        position: startPosition.clone(),
+        quaternion: q,
+        fov: 70,
+        nextMode,
+      });
+    } else {
+      // Transition back to overview
+      const lookAt = new THREE.Matrix4();
+      lookAt.lookAt(layout.cameraPos, layout.center, new THREE.Vector3(0, 1, 0));
+      const q = new THREE.Quaternion();
+      q.setFromRotationMatrix(lookAt);
+      setTransitionTarget({
+        position: layout.cameraPos.clone(),
+        quaternion: q,
         fov: 60,
-        near: 0.1,
-        far: 500,
-      }}
-      dpr={[1, 2]}
-      style={{ width: '100%', height: '100%', background: '#e8e8e8' }}
-    >
-      {/* Lighting — positioned relative to apartment center */}
-      <ambientLight intensity={0.4} color="#ffffff" />
-      <directionalLight
-        position={[layout.center.x + 10, 20, layout.center.z - 10]}
-        intensity={0.6}
-        color="#ffffff"
-      />
-      <directionalLight
-        position={[layout.center.x - 8, 12, layout.center.z + 8]}
-        intensity={0.25}
-        color="#f0f0ff"
-      />
+        nextMode,
+      });
+    }
 
-      <WallGroup
-        walls={layout.filteredWalls}
-        scaleFactor={data.scale_factor}
-        wallOpenings={layout.wallOpenings}
-      />
+    setTransitioning(true);
+  }, [viewMode, transitioning, startPosition, layout]);
 
-      <OpeningsGroup
-        walls={layout.filteredWalls}
-        scaleFactor={data.scale_factor}
-        wallOpenings={layout.wallOpenings}
-      />
+  const handleTransitionComplete = useCallback(() => {
+    const next = transitionTarget?.nextMode;
+    if (next) setViewMode(next);
+    setTransitioning(false);
+    setTransitionTarget(null);
+  }, [transitionTarget]);
 
-      <DirectDoorGroup
-        openings={data.openings}
-        scaleFactor={data.scale_factor}
-      />
+  // Camera update callback from FirstPersonController
+  const handleCameraUpdate = useCallback((pos: THREE.Vector3, yaw: number) => {
+    setCameraState({ x: pos.x, z: pos.z, yaw });
+  }, []);
 
-      <group name="floors">
-        {data.rooms.map((r) => (
-          <FloorMesh key={r.id} room={r} scaleFactor={data.scale_factor} />
-        ))}
-      </group>
+  // Teleport from minimap
+  const handleTeleport = useCallback(
+    (x: number, z: number) => {
+      teleportRef.current = { x, z };
+    },
+    [],
+  );
 
-      <group name="ceilings">
-        {data.rooms.map((r) => (
-          <CeilingMesh key={`ceil-${r.id}`} room={r} scaleFactor={data.scale_factor} />
-        ))}
-      </group>
+  // FOV change from mobile pinch
+  const handleFovChange = useCallback((_fov: number) => {
+    // FOV is handled by FirstPersonController via camera ref
+    // This is a simplified passthrough — in practice the camera.fov
+    // is set by the controller
+  }, []);
 
-      <OrbitControls
-        target={layout.center.toArray()}
-        enableDamping
-        dampingFactor={0.05}
-        minDistance={1}
-        maxDistance={100}
-      />
-    </Canvas>
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <Canvas
+        camera={{
+          position: layout.cameraPos.toArray(),
+          fov: 60,
+          near: 0.1,
+          far: 500,
+        }}
+        dpr={[1, 2]}
+        style={{ width: '100%', height: '100%', background: '#e8e8e8' }}
+      >
+        {/* Lighting — positioned relative to apartment center */}
+        <ambientLight intensity={0.4} color="#ffffff" />
+        <directionalLight
+          position={[layout.center.x + 10, 20, layout.center.z - 10]}
+          intensity={0.6}
+          color="#ffffff"
+        />
+        <directionalLight
+          position={[layout.center.x - 8, 12, layout.center.z + 8]}
+          intensity={0.25}
+          color="#f0f0ff"
+        />
+
+        <WallGroup
+          walls={layout.filteredWalls}
+          scaleFactor={data.scale_factor}
+          wallOpenings={layout.wallOpenings}
+          groupRef={wallGroupRef}
+        />
+
+        <OpeningsGroup
+          walls={layout.filteredWalls}
+          scaleFactor={data.scale_factor}
+          wallOpenings={layout.wallOpenings}
+        />
+
+        <DirectDoorGroup
+          openings={data.openings}
+          scaleFactor={data.scale_factor}
+        />
+
+        <BaseboardGroup
+          walls={layout.filteredWalls}
+          scaleFactor={data.scale_factor}
+        />
+
+        <group name="floors">
+          {data.rooms.map((r) => (
+            <FloorMesh key={r.id} room={r} scaleFactor={data.scale_factor} />
+          ))}
+        </group>
+
+        <group name="ceilings">
+          {data.rooms.map((r) => (
+            <CeilingMesh key={`ceil-${r.id}`} room={r} scaleFactor={data.scale_factor} />
+          ))}
+        </group>
+
+        {/* Controls — only one active at a time */}
+        {!transitioning && viewMode === 'overview' && (
+          <OrbitControls
+            target={layout.center.toArray()}
+            enableDamping
+            dampingFactor={0.05}
+            minDistance={1}
+            maxDistance={100}
+          />
+        )}
+
+        {!transitioning && viewMode === 'walkthrough' && (
+          <FirstPersonController
+            enabled
+            startPosition={startPosition}
+            wallGroupRef={wallGroupRef}
+            onPositionChange={handleCameraUpdate}
+            moveInputRef={moveInputRef}
+            lookInputRef={lookInputRef}
+            teleportRef={teleportRef}
+          />
+        )}
+
+        {transitioning && transitionTarget && (
+          <CameraTransition
+            targetPosition={transitionTarget.position}
+            targetQuaternion={transitionTarget.quaternion}
+            targetFov={transitionTarget.fov}
+            duration={1.0}
+            onComplete={handleTransitionComplete}
+          />
+        )}
+      </Canvas>
+
+      {/* HTML overlays — outside Canvas */}
+      <SceneToolbar viewMode={viewMode} onToggle={handleToggleMode} />
+
+      {viewMode === 'walkthrough' && !transitioning && (
+        <>
+          <Minimap
+            rooms={data.rooms}
+            walls={layout.filteredWalls}
+            scaleFactor={data.scale_factor}
+            cameraX={cameraState.x}
+            cameraZ={cameraState.z}
+            cameraYaw={cameraState.yaw}
+            onTeleport={handleTeleport}
+            visible
+          />
+          {isMobile && (
+            <MobileControls
+              moveInputRef={moveInputRef}
+              lookInputRef={lookInputRef}
+              onFovChange={handleFovChange}
+              visible
+            />
+          )}
+        </>
+      )}
+
+      {/* Pointer lock hint overlay */}
+      {viewMode === 'walkthrough' && !transitioning && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 60,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            color: 'rgba(255,255,255,0.5)',
+            fontSize: '0.75rem',
+            textAlign: 'center',
+            zIndex: 5,
+            pointerEvents: 'none',
+          }}
+        >
+          WASD / חצים לתנועה | גרור עכבר להסתכלות | Shift = ריצה
+        </div>
+      )}
+    </div>
   );
 }

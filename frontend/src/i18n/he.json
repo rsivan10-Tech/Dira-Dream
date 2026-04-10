@@ -131,5 +131,10 @@
   "debug.color": "צבע",
   "debug.length": "אורך",
   "debug.noSegments": "לא נמצאו קטעים",
-  "debug.clickSegment": "לחץ על קטע לצפייה במאפיינים"
+  "debug.clickSegment": "לחץ על קטע לצפייה במאפיינים",
+
+  "scene.overview": "תצוגה עליונה",
+  "scene.walkthrough": "סיור בדירה",
+  "scene.clickToLook": "לחץ לסיור חופשי",
+  "scene.controls": "WASD לתנועה, עכבר להסתכלות, ESC ליציאה"
 }

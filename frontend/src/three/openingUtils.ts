@@ -109,10 +109,11 @@ function getSillHeight(type: OpeningType): number {
 
 /**
  * Maximum distance (meters) from opening to wall to be considered a match.
- * Set to 0.8m to handle wider doors (90-95cm) where the midpoint of the
- * gap between wall segments sits ~0.475m from each adjacent endpoint.
+ * Windows need a generous threshold because wall merger drifts positions.
+ * Glass doors need less tolerance since they have precise endpoint data.
  */
-const MATCH_THRESHOLD_M = 0.8;
+const MATCH_THRESHOLD_WINDOW_M = 1.5;
+const MATCH_THRESHOLD_GLASS_DOOR_M = 1.2;
 
 /** Minimum margin (meters) between opening edge and wall edge. */
 const EDGE_MARGIN_M = 0.02;
@@ -149,7 +150,21 @@ export function matchOpeningsToWalls(
   const result = new Map<string, OpeningOnWall[]>();
 
   for (const opening of openings) {
-    const pos = pdfPointsToThree(opening.position.x, opening.position.y, scaleFactor);
+    // Regular doors are gap-based: filterDoorZones removes wall fragments
+    // to create the opening. DirectDoorGroup renders the door panel.
+    // Don't cut holes for regular doors — the gap IS the opening.
+    if (opening.type === 'door') continue;
+
+    // For glass doors with endpoints, use endpoint midpoint for more
+    // accurate matching (API position can drift from actual gap location)
+    const pos =
+      opening.type !== 'window' && opening.endpoints
+        ? pdfPointsToThree(
+            (opening.endpoints[0].x + opening.endpoints[1].x) / 2,
+            (opening.endpoints[0].y + opening.endpoints[1].y) / 2,
+            scaleFactor,
+          )
+        : pdfPointsToThree(opening.position.x, opening.position.y, scaleFactor);
 
     let bestWall: Wall3D | null = null;
     let bestDist = Infinity;
@@ -167,7 +182,13 @@ export function matchOpeningsToWalls(
       }
     }
 
-    if (!bestWall || bestDist > MATCH_THRESHOLD_M) {
+    // Type-specific matching threshold
+    const threshold =
+      opening.type === 'window'
+        ? MATCH_THRESHOLD_WINDOW_M
+        : MATCH_THRESHOLD_GLASS_DOOR_M;
+
+    if (!bestWall || bestDist > threshold) {
       continue;
     }
 
@@ -176,7 +197,10 @@ export function matchOpeningsToWalls(
     // interior furniture and annotation lines.
     if (opening.type === 'window') {
       const matchedWallData = walls.find((w) => w.id === bestWall!.id);
-      if (matchedWallData && matchedWallData.wall_type === 'partition') {
+      if (matchedWallData?.wall_type === 'partition') {
+        console.warn(
+          `[3D] Skipping window ${opening.id} on partition wall ${bestWall!.id} (dist=${bestDist.toFixed(3)}m)`,
+        );
         continue;
       }
     }
@@ -226,12 +250,43 @@ export function matchOpeningsToWalls(
     result.set(wallId, filtered);
   }
 
-  // Summary log for debugging
+  // Diagnostic: log unmatched openings with nearest wall info
+  const matchedIds = new Set<string>();
+  for (const list of result.values()) {
+    for (const op of list) matchedIds.add(op.id);
+  }
+  let doorCount = 0;
+  for (const opening of openings) {
+    if (opening.type === 'door') {
+      doorCount++;
+      continue; // doors skip matching by design
+    }
+    if (!matchedIds.has(opening.id)) {
+      const pos = pdfPointsToThree(opening.position.x, opening.position.y, scaleFactor);
+      let nearestDist = Infinity;
+      let nearestWallType = 'none';
+      for (const w3d of walls3d) {
+        const { distance } = pointToSegmentProjection(
+          pos.x, pos.z, w3d.sx, w3d.sz, w3d.ex, w3d.ez,
+        );
+        if (distance < nearestDist) {
+          nearestDist = distance;
+          nearestWallType = walls.find((w) => w.id === w3d.id)?.wall_type ?? 'unknown';
+        }
+      }
+      console.warn(
+        `[3D] UNMATCHED ${opening.type} ${opening.id}: nearest wall (${nearestWallType}) at ${nearestDist.toFixed(3)}m`,
+      );
+    }
+  }
+
+  // Summary log
   let totalMatched = 0;
   for (const list of result.values()) totalMatched += list.length;
   const wallsWithOpenings = result.size;
+  const nonDoorCount = openings.length - doorCount;
   console.log(
-    `[3D] Opening matching: ${totalMatched}/${openings.length} openings matched to ${wallsWithOpenings} walls`,
+    `[3D] Opening matching: ${totalMatched}/${nonDoorCount} windows/glass-doors matched to ${wallsWithOpenings} walls (${doorCount} regular doors use gap-based rendering)`,
   );
 
   return result;

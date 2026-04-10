@@ -11,16 +11,20 @@ import {
   pdfToThree,
   pdfPointsToThree,
   CEILING_HEIGHT_M,
+  EYE_HEIGHT_M,
   WALL_THICKNESS_M,
   WALL_COLORS,
   FLOOR_COLORS,
   DOOR_HEIGHT_M,
   WINDOW_HEIGHT_M,
   WINDOW_SILL_M,
+  GLASS_DOOR_HEIGHT_M,
 } from './coordinateUtils';
 import { getWallsFor3D } from './FloorplanScene';
 import { matchOpeningsToWalls } from './openingUtils';
-import type { FloorplanData, Wall, Opening } from '@/types/floorplan';
+import { getLargestRoom, computeStartPosition, forwardFromYaw, wallSlide } from './FirstPersonController';
+import { worldToMinimap, minimapToWorld } from './Minimap';
+import type { FloorplanData, Wall, Room, Opening } from '@/types/floorplan';
 
 // ---------------------------------------------------------------------------
 // Coordinate transform
@@ -271,8 +275,7 @@ describe('matchOpeningsToWalls', () => {
     }),
   ];
 
-  it('matches a door whose midpoint is in the gap between wall segments', () => {
-    // Door midpoint at (250, 200) — on the wall line
+  it('skips regular doors (gap-based, rendered by DirectDoorGroup)', () => {
     const openings: Opening[] = [
       makeOpening({
         id: 'door-1',
@@ -283,14 +286,28 @@ describe('matchOpeningsToWalls', () => {
     ];
 
     const result = matchOpeningsToWalls(testWalls, openings, SF);
+    // Regular doors are gap-based — no hole-cutting needed
+    expect(result.size).toBe(0);
+  });
+
+  it('matches a glass door (sliding_door) to wall for hole-cutting', () => {
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'glass-1',
+        type: 'sliding_door',
+        position: { x: 250, y: 200 },
+        width_cm: 200,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
     expect(result.size).toBe(1);
     expect(result.get('w1')).toHaveLength(1);
 
     const matched = result.get('w1')![0];
-    expect(matched.type).toBe('door');
+    expect(matched.type).toBe('sliding_door');
     expect(matched.sillHeight).toBe(0);
-    expect(matched.height).toBeCloseTo(DOOR_HEIGHT_M, 4);
-    expect(matched.width).toBeCloseTo(0.8, 2);
+    expect(matched.height).toBeCloseTo(GLASS_DOOR_HEIGHT_M, 4);
   });
 
   it('matches a window near the wall', () => {
@@ -312,14 +329,14 @@ describe('matchOpeningsToWalls', () => {
     expect(matched.height).toBeCloseTo(WINDOW_HEIGHT_M, 4);
   });
 
-  it('rejects opening too far from any wall (> threshold)', () => {
-    // Opening 200 PDF pts above the wall → ~3.5m away
+  it('rejects window too far from any wall (> 1.5m threshold)', () => {
+    // Window 200 PDF pts above the wall → ~3.5m away (exceeds 1.5m threshold)
     const openings: Opening[] = [
       makeOpening({
         id: 'far-1',
-        type: 'door',
+        type: 'window',
         position: { x: 250, y: 400 },
-        width_cm: 80,
+        width_cm: 120,
       }),
     ];
 
@@ -333,13 +350,13 @@ describe('matchOpeningsToWalls', () => {
   });
 
   it('clamps opening offset to stay within wall bounds', () => {
-    // Opening at the very start of the wall
+    // Glass door at the very start of the wall
     const openings: Opening[] = [
       makeOpening({
         id: 'edge-1',
-        type: 'door',
+        type: 'sliding_door',
         position: { x: 100, y: 200 },
-        width_cm: 80,
+        width_cm: 200,
       }),
     ];
 
@@ -347,6 +364,22 @@ describe('matchOpeningsToWalls', () => {
     const matched = result.get('w1')![0];
     // Offset should be clamped so opening doesn't extend past wall start
     expect(matched.offset).toBeGreaterThanOrEqual(matched.width / 2 + 0.02);
+  });
+
+  it('matches window at moderate distance (within 1.5m threshold)', () => {
+    // Window 50 PDF pts from wall ≈ 0.88m — would fail at old 0.8m threshold
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'win-far',
+        type: 'window',
+        position: { x: 250, y: 250 },
+        width_cm: 120,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
+    expect(result.size).toBe(1);
+    expect(result.get('w1')![0].type).toBe('window');
   });
 });
 
@@ -387,5 +420,231 @@ describe('glass door width heuristic', () => {
 
   it('french door (160cm) exceeds glass threshold', () => {
     expect(1.6).toBeGreaterThan(1.4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EYE_HEIGHT_M constant
+// ---------------------------------------------------------------------------
+
+describe('EYE_HEIGHT_M', () => {
+  it('is 1.65m (standard eye height)', () => {
+    expect(EYE_HEIGHT_M).toBe(1.65);
+  });
+
+  it('is below ceiling height', () => {
+    expect(EYE_HEIGHT_M).toBeLessThan(CEILING_HEIGHT_M);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getLargestRoom
+// ---------------------------------------------------------------------------
+
+function makeRoom(overrides: Partial<Room>): Room {
+  return {
+    id: 'r-test',
+    type: 'unknown',
+    type_he: 'חדר',
+    confidence: 1,
+    area_sqm: 10,
+    perimeter_m: 12,
+    polygon: [[0, 0], [100, 0], [100, 100], [0, 100]],
+    centroid: { x: 50, y: 50 },
+    label_point: { x: 50, y: 50 },
+    classification_method: 'area_heuristic',
+    needs_review: false,
+    is_modifiable: true,
+    ...overrides,
+  };
+}
+
+describe('getLargestRoom', () => {
+  it('returns undefined for empty array', () => {
+    expect(getLargestRoom([])).toBeUndefined();
+  });
+
+  it('returns salon when present (regardless of area)', () => {
+    const rooms = [
+      makeRoom({ id: 'r1', type: 'bedroom', area_sqm: 30 }),
+      makeRoom({ id: 'r2', type: 'salon', area_sqm: 15 }),
+      makeRoom({ id: 'r3', type: 'kitchen', area_sqm: 20 }),
+    ];
+    expect(getLargestRoom(rooms)!.id).toBe('r2');
+  });
+
+  it('returns largest by area when no salon', () => {
+    const rooms = [
+      makeRoom({ id: 'r1', type: 'bedroom', area_sqm: 12 }),
+      makeRoom({ id: 'r2', type: 'kitchen', area_sqm: 25 }),
+      makeRoom({ id: 'r3', type: 'bathroom', area_sqm: 5 }),
+    ];
+    expect(getLargestRoom(rooms)!.id).toBe('r2');
+  });
+
+  it('returns single room', () => {
+    const rooms = [makeRoom({ id: 'r1', type: 'mamad', area_sqm: 10 })];
+    expect(getLargestRoom(rooms)!.id).toBe('r1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeStartPosition
+// ---------------------------------------------------------------------------
+
+describe('computeStartPosition', () => {
+  const SF = 0.0176;
+
+  it('places camera at EYE_HEIGHT_M', () => {
+    const rooms = [makeRoom({ centroid: { x: 200, y: 300 } })];
+    const pos = computeStartPosition(rooms, SF);
+    expect(pos.y).toBe(EYE_HEIGHT_M);
+  });
+
+  it('converts centroid through pdfPointsToThree', () => {
+    const rooms = [makeRoom({ centroid: { x: 200, y: 300 } })];
+    const pos = computeStartPosition(rooms, SF);
+    const expected = pdfPointsToThree(200, 300, SF);
+    expect(pos.x).toBeCloseTo(expected.x, 4);
+    expect(pos.z).toBeCloseTo(expected.z, 4);
+  });
+
+  it('returns origin at eye height for empty rooms', () => {
+    const pos = computeStartPosition([], SF);
+    expect(pos.x).toBe(0);
+    expect(pos.y).toBe(EYE_HEIGHT_M);
+    expect(pos.z).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// forwardFromYaw — camera direction vectors
+// ---------------------------------------------------------------------------
+
+describe('forwardFromYaw', () => {
+  it('yaw=0 → forward is (0, 0, -1)', () => {
+    const fwd = forwardFromYaw(0);
+    expect(fwd.x).toBeCloseTo(0, 4);
+    expect(fwd.y).toBe(0);
+    expect(fwd.z).toBeCloseTo(-1, 4);
+  });
+
+  it('yaw=PI/2 → forward is (-1, 0, 0)', () => {
+    const fwd = forwardFromYaw(Math.PI / 2);
+    expect(fwd.x).toBeCloseTo(-1, 4);
+    expect(fwd.y).toBe(0);
+    expect(fwd.z).toBeCloseTo(0, 3);
+  });
+
+  it('yaw=-PI/2 → forward is (1, 0, 0)', () => {
+    const fwd = forwardFromYaw(-Math.PI / 2);
+    expect(fwd.x).toBeCloseTo(1, 4);
+    expect(fwd.y).toBe(0);
+    expect(fwd.z).toBeCloseTo(0, 3);
+  });
+
+  it('always returns a unit vector in XZ plane', () => {
+    for (const angle of [0, 0.5, 1.0, 2.0, Math.PI, -1.5]) {
+      const fwd = forwardFromYaw(angle);
+      expect(fwd.y).toBe(0);
+      expect(fwd.length()).toBeCloseTo(1.0, 4);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// wallSlide — collision projection
+// ---------------------------------------------------------------------------
+
+describe('wallSlide', () => {
+  // Convention: wallNormal points from wall surface toward player (face normal
+  // from Three.js raycaster). Movement INTO the wall has negative dot product.
+
+  it('removes movement component into wall', () => {
+    // Walking toward +Z, wall at +Z → normal faces back at player: (0,0,-1)
+    const movement = new THREE.Vector3(1, 0, 1);
+    const wallNormal = new THREE.Vector3(0, 0, -1);
+    const result = wallSlide(movement, wallNormal);
+    // Z component (into wall) removed, X component (parallel) preserved
+    expect(result.x).toBeCloseTo(1, 4);
+    expect(result.z).toBeCloseTo(0, 4);
+  });
+
+  it('preserves movement parallel to wall', () => {
+    // Moving along X, wall normal in Z — fully parallel, no blocking
+    const movement = new THREE.Vector3(1, 0, 0);
+    const wallNormal = new THREE.Vector3(0, 0, -1);
+    const result = wallSlide(movement, wallNormal);
+    expect(result.x).toBeCloseTo(1, 4);
+    expect(result.z).toBeCloseTo(0, 4);
+  });
+
+  it('does not modify movement away from wall', () => {
+    // Moving toward -Z, wall normal also points -Z (moving away from wall)
+    const movement = new THREE.Vector3(0, 0, -1);
+    const wallNormal = new THREE.Vector3(0, 0, -1);
+    const result = wallSlide(movement, wallNormal);
+    // dot = (-1)*(-1) = +1 ≥ 0 → moving away, no slide needed
+    expect(result.z).toBeCloseTo(-1, 4);
+  });
+
+  it('handles diagonal wall normals', () => {
+    // Walking toward +X, wall at 45° with normal pointing back at player
+    const movement = new THREE.Vector3(1, 0, 0);
+    const wallNormal = new THREE.Vector3(-0.7071, 0, -0.7071);
+    const result = wallSlide(movement, wallNormal);
+    // Movement partially blocked by diagonal wall
+    expect(result.length()).toBeLessThan(movement.length());
+    expect(result.length()).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Minimap coordinate transforms
+// ---------------------------------------------------------------------------
+
+describe('minimap coordinate transforms', () => {
+  // Create a simple bbox for testing
+  const bbox = {
+    minX: 0,
+    maxX: 10,
+    minZ: -10,
+    maxZ: 0,
+    scale: 17.6, // (200 - 24) / 10 = 17.6
+    offsetX: 12,
+    offsetZ: 12,
+  };
+
+  it('worldToMinimap maps world origin to correct canvas position', () => {
+    const { px, py } = worldToMinimap(0, -10, bbox);
+    expect(px).toBeCloseTo(bbox.offsetX, 1);
+    expect(py).toBeCloseTo(bbox.offsetZ, 1);
+  });
+
+  it('worldToMinimap maps max corner correctly', () => {
+    const { px, py } = worldToMinimap(10, 0, bbox);
+    expect(px).toBeCloseTo(bbox.offsetX + 10 * bbox.scale, 1);
+    expect(py).toBeCloseTo(bbox.offsetZ + 10 * bbox.scale, 1);
+  });
+
+  it('minimapToWorld is the inverse of worldToMinimap', () => {
+    const worldX = 5;
+    const worldZ = -5;
+    const { px, py } = worldToMinimap(worldX, worldZ, bbox);
+    const back = minimapToWorld(px, py, bbox);
+    expect(back.x).toBeCloseTo(worldX, 4);
+    expect(back.z).toBeCloseTo(worldZ, 4);
+  });
+
+  it('roundtrip works for multiple positions', () => {
+    const positions = [
+      [0, 0], [10, -10], [5, -5], [2.3, -7.8],
+    ];
+    for (const [x, z] of positions) {
+      const { px, py } = worldToMinimap(x, z, bbox);
+      const back = minimapToWorld(px, py, bbox);
+      expect(back.x).toBeCloseTo(x, 4);
+      expect(back.z).toBeCloseTo(z, 4);
+    }
   });
 });
