@@ -1,0 +1,131 @@
+{
+  "_description": "Ground truth for Sample 2 page 1 (T-4B apartment, Almogim/Bravo, Tel HaShomer). Annotated 2026-04-10.",
+  "_pdf": "docs/test-pdfs/- Sample 2 vector pdf \u05ea\u05db\u05e0\u05d9\u05d5\u05ea-\u05de\u05db\u05e8-\u05d3\u05d9\u05e8\u05ea\u05d9-\u05de\u05d2\u05e8\u05e9-130-\u05d1\u05e0\u05d9\u05d9\u05e0\u05d9\u05dd-A-\u05d5-B.pdf",
+  "_annotation": "docs/test-pdfs/sample-2-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "T-4B",
+    "developer": "Almogim/Bravo",
+    "location": "Tel HaShomer, Ramat Gan",
+    "scale": "1:50",
+    "total_interior_sqm": 101.6,
+    "balcony_sqm": 15.4
+  },
+  "rooms": {
+    "total": 9,
+    "by_type": {
+      "bedroom": 2,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 1,
+      "guest_toilet": 1,
+      "sun_balcony": 1,
+      "service_balcony": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 2",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 14,
+        "location": "center-left"
+      },
+      {
+        "label_he": "\u05d7. \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 15,
+        "location": "far right"
+      },
+      {
+        "label_he": "\u05de\u05de\"\u05d3 \u05d7. \u05e9\u05d9\u05e0\u05d4 3",
+        "label_en": "mamad / bedroom 3",
+        "type": "mamad",
+        "area_sqm_approx": 10,
+        "location": "bottom center",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05d7. \u05d3\u05d9\u05d5\u05e8",
+        "label_en": "salon / living room",
+        "type": "salon",
+        "area_sqm_approx": 25,
+        "location": "center, largest room"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 12,
+        "location": "center-right, has stove/counter symbols"
+      },
+      {
+        "label_he": "\u05de\u05e7\u05dc\u05d7\u05ea",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 6,
+        "location": "far right, has bathtub/shower symbol"
+      },
+      {
+        "label_he": "\u05e9\u05d9\u05e8\u05d5\u05ea\u05d9 \u05d0\u05d5\u05e8\u05d7\u05d9\u05dd",
+        "label_en": "guest toilet",
+        "type": "guest_toilet",
+        "area_sqm_approx": 3,
+        "location": "center, has toilet + sink"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9 \u05de\u05e7\u05d5\u05e8\u05d4",
+        "label_en": "sun balcony (covered)",
+        "type": "sun_balcony",
+        "area_sqm_approx": 15.4,
+        "location": "top right, cross-hatched, outside apartment envelope"
+      },
+      {
+        "label_he": "\u05de\u05e1\u05ea\u05d5\u05e8 \u05db\u05d1\u05d9\u05e1\u05d4 / \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony / utility",
+        "type": "service_balcony",
+        "area_sqm_approx": 4,
+        "location": "bottom left"
+      }
+    ]
+  },
+  "doors": {
+    "total": 9,
+    "notes": "entrance + 1 per room; glass door between salon and sun balcony"
+  },
+  "windows": {
+    "total": 6,
+    "notes": "on exterior walls only"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 10,
+    "location": "bottom center",
+    "notes": "thickest walls, labeled \u05de\u05de\"\u05d3 \u05d7. \u05e9\u05d9\u05e0\u05d4 3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls running full apartment width",
+    "partition": "blue lines interior — removable/movable"
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 3,
+    "rooms_max": 14,
+    "doors_min": 3,
+    "doors_max": 18,
+    "windows_min": 2,
+    "windows_max": 12,
+    "mamad_must_detect": true
+  }
+}

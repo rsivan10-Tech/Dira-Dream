@@ -551,8 +551,21 @@ def detect_doors_and_windows(
                     used_dangles.add(other)
                     break  # Each dangle used once
 
+    # Deduplicate doors: multiple dangling pairs near the same physical door
+    doors_before = len(openings)
+    openings = _deduplicate_openings(openings, radius=20.0)
+    logger.info(
+        "Door dedup: %d -> %d (merged %d duplicates)",
+        doors_before, len(openings), doors_before - len(openings),
+    )
+
     # Window detection: find parallel line pairs in exterior wall segments
-    windows = _detect_windows(segments, scale_factor, window_min_pt, window_max_pt)
+    ext_wall_set = _build_exterior_wall_set(segments, rooms)
+    windows = _detect_windows(
+        segments, scale_factor, window_min_pt, window_max_pt,
+        exterior_wall_set=ext_wall_set,
+    )
+    windows = _deduplicate_openings(windows, radius=25.0)
     openings.extend(windows)
 
     report = {
@@ -569,6 +582,113 @@ def detect_doors_and_windows(
     )
 
     return openings, report
+
+
+def _deduplicate_openings(
+    openings: list[Opening],
+    radius: float = 20.0,
+) -> list[Opening]:
+    """
+    Merge openings whose midpoints are within *radius* PDF points.
+
+    When multiple detections refer to the same physical opening, keep
+    the one whose width is closest to the standard door (80 cm) or
+    window (120 cm) width.
+    """
+    if len(openings) <= 1:
+        return openings
+
+    positions = np.array([o.position for o in openings])
+    tree = KDTree(positions)
+
+    merged: list[Opening] = []
+    used = set()
+
+    for i, opening in enumerate(openings):
+        if i in used:
+            continue
+
+        cluster_indices = tree.query_ball_point(positions[i], r=radius)
+        cluster = [j for j in cluster_indices if j not in used]
+
+        if not cluster:
+            continue
+
+        # Pick best: for doors prefer closest to 80cm, for windows closest to 120cm
+        target_cm = 80.0 if opening.opening_type == "door" else 120.0
+        best_idx = min(cluster, key=lambda j: abs(openings[j].width_cm - target_cm))
+
+        merged.append(openings[best_idx])
+        for j in cluster:
+            used.add(j)
+
+    return merged
+
+
+def _build_exterior_wall_set(
+    segments: list[dict],
+    rooms: list[Room],
+) -> set[int]:
+    """
+    Return indices of segments that lie near the apartment exterior boundary.
+
+    Uses convex hull of all segment endpoints + a perimeter band, same
+    logic as detect_exterior_walls but returns segment indices.
+    """
+    if len(segments) < 6:
+        return set()
+
+    import networkx as nx
+    from shapely.geometry import MultiPoint
+
+    G = nx.Graph()
+    for seg in segments:
+        s = (round(seg["start"][0], 1), round(seg["start"][1], 1))
+        e = (round(seg["end"][0], 1), round(seg["end"][1], 1))
+        if s != e:
+            G.add_edge(s, e)
+
+    if G.number_of_nodes() < 4:
+        return set()
+
+    lc_nodes = max(nx.connected_components(G), key=len)
+    lc_set = set(lc_nodes)
+    pts = []
+    for seg in segments:
+        s = (round(seg["start"][0], 1), round(seg["start"][1], 1))
+        e = (round(seg["end"][0], 1), round(seg["end"][1], 1))
+        if s in lc_set or e in lc_set:
+            pts.append(seg["start"])
+            pts.append(seg["end"])
+
+    if len(pts) < 6:
+        return set()
+
+    hull = MultiPoint(pts).convex_hull
+    if hull.is_empty or hull.geom_type != "Polygon":
+        return set()
+
+    hull_boundary = hull.exterior
+    bx0, by0, bx1, by1 = hull.bounds
+    band_width = min(bx1 - bx0, by1 - by0) * 0.05
+    band_width = max(band_width, 10.0)
+    hull_interior = hull.buffer(-band_width)
+
+    exterior_indices: set[int] = set()
+    for i, seg in enumerate(segments):
+        seg_line = LineString([seg["start"], seg["end"]])
+        if seg_line.length < 2.0:
+            continue
+        mid = Point(
+            (seg["start"][0] + seg["end"][0]) / 2,
+            (seg["start"][1] + seg["end"][1]) / 2,
+        )
+        in_hull = hull.contains(mid) or hull_boundary.distance(mid) < 3.0
+        in_interior = hull_interior.contains(mid) if not hull_interior.is_empty else False
+        if in_hull and not in_interior:
+            exterior_indices.add(i)
+
+    return exterior_indices
 
 
 def _gap_is_in_wall(
@@ -642,29 +762,61 @@ def _find_connected_rooms(
     return None
 
 
+MIN_WINDOW_SEG_LENGTH = 30.0  # PDF points — skip tiny fragments
+
+
 def _detect_windows(
     segments: list[dict],
     scale_factor: float,
     window_min_pt: float,
     window_max_pt: float,
+    exterior_wall_set: set[int] | None = None,
 ) -> list[Opening]:
     """
     Detect windows as parallel double/triple lines within wall segments.
 
     Windows in Israeli plans appear as 2-3 parallel lines drawn within
     the wall thickness, spanning the window width.
+
+    Filters applied (Sprint 5B):
+    - At least one segment in the pair must be near an exterior wall.
+    - Both segments must be longer than MIN_WINDOW_SEG_LENGTH (30pt).
+    - Parallel within 5 degrees, perpendicular distance 1-15pt, overlap > 50%.
     """
     windows: list[Opening] = []
 
-    # Group segments by orientation (horizontal vs vertical, +-5 degrees)
-    for i, seg_a in enumerate(segments):
+    if exterior_wall_set is None:
+        exterior_wall_set = set()
+
+    # Pre-filter: only consider segments long enough to be window edges
+    candidates: list[tuple[int, dict]] = []
+    for i, seg in enumerate(segments):
+        seg_len = math.hypot(
+            seg["end"][0] - seg["start"][0],
+            seg["end"][1] - seg["start"][1],
+        )
+        if seg_len >= MIN_WINDOW_SEG_LENGTH:
+            candidates.append((i, seg))
+
+    for ci, (idx_a, seg_a) in enumerate(candidates):
         angle_a = math.atan2(
             seg_a["end"][1] - seg_a["start"][1],
             seg_a["end"][0] - seg_a["start"][0],
         )
+        len_a = math.hypot(
+            seg_a["end"][0] - seg_a["start"][0],
+            seg_a["end"][1] - seg_a["start"][1],
+        )
 
-        for j, seg_b in enumerate(segments):
-            if j <= i:
+        # Skip if this segment length is not in window range
+        if not (window_min_pt <= len_a <= window_max_pt):
+            continue
+
+        for cj in range(ci + 1, len(candidates)):
+            idx_b, seg_b = candidates[cj]
+
+            # At least one segment must be near the exterior boundary
+            if exterior_wall_set and idx_a not in exterior_wall_set and idx_b not in exterior_wall_set:
                 continue
 
             angle_b = math.atan2(
@@ -689,24 +841,17 @@ def _detect_windows(
             if overlap < 0.5:
                 continue
 
-            # Check if the overlapping length is in window range
-            len_a = math.hypot(
-                seg_a["end"][0] - seg_a["start"][0],
-                seg_a["end"][1] - seg_a["start"][1],
-            )
+            mid_x = (seg_a["start"][0] + seg_a["end"][0] +
+                     seg_b["start"][0] + seg_b["end"][0]) / 4
+            mid_y = (seg_a["start"][1] + seg_a["end"][1] +
+                     seg_b["start"][1] + seg_b["end"][1]) / 4
 
-            if window_min_pt <= len_a <= window_max_pt:
-                mid_x = (seg_a["start"][0] + seg_a["end"][0] +
-                         seg_b["start"][0] + seg_b["end"][0]) / 4
-                mid_y = (seg_a["start"][1] + seg_a["end"][1] +
-                         seg_b["start"][1] + seg_b["end"][1]) / 4
-
-                windows.append(Opening(
-                    position=(mid_x, mid_y),
-                    width_cm=len_a * scale_factor * 100,
-                    opening_type="window",
-                ))
-                break  # Avoid duplicate matches for same window
+            windows.append(Opening(
+                position=(mid_x, mid_y),
+                width_cm=len_a * scale_factor * 100,
+                opening_type="window",
+            ))
+            break  # Avoid duplicate matches for same window
 
     return windows
 

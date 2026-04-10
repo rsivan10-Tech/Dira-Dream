@@ -79,7 +79,7 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - [2026-04-09] Dead-end counts after healing are 10-100x higher than expected (1,898 / 495 / 659 vs expected 20-50 for door openings). Root cause: many near-miss endpoints beyond SNAP_TOLERANCE=3.0, plus dimension lines and annotation fragments surviving crop. Needs: (a) second-pass gap-fill for 3-15pt endpoints, (b) pre-healing filter for dimension/annotation lines by stroke width. Status: fixed in Sprint 2 (dead ends reduced 83-92%).
 - [2026-04-09] Room detection produced 0 rooms on Samples 0 and 6 due to graph fragmentation. Fix applied: reconnect_components() bridges nearby disconnected fragments (5× SNAP_TOLERANCE). LC% improved: Sample 0: 46.9%→71.5%, Sample 6: 44.6%→81.2%, Sample 9: 79.8%→90.3%. However, Samples 0/1/6 still have 0 rooms because the graph topology is too dense (1000+ wall segments form tiny faces ≤2317 pt² vs 38,564 pt² for a real 3×4m room). Root cause: wall-only filter keeps too many short fragments that create mesh-like intersections. Fix: more aggressive segment merging or wall-count reduction before split_at_intersections. Status: partially fixed (connectivity solved, topology still open).
 - [2026-04-09] Mamad detector identifies Sample 9 bedroom (10.9 sqm, text says "חדר שינה") as mamad by wall thickness. Text classification (95% confidence) and mamad detection (95% confidence) conflict. Need priority resolution: if text says bedroom, mamad detector should require additional evidence (single door, no standard window). Status: open.
-- [2026-04-09] Window detector finds 24 windows on Sample 9 — too many for a small apartment. Parallel-line heuristic is over-sensitive, matching furniture outlines and annotation lines. Needs: restrict to exterior-wall-adjacent segments only, require minimum line thickness. Status: open.
+- [2026-04-09] Window detector finds 24 windows on Sample 9 — too many for a small apartment. Parallel-line heuristic is over-sensitive, matching furniture outlines and annotation lines. Status: **FIXED** [2026-04-10]. Applied exterior-wall proximity filter, min segment length (30pt), and spatial dedup (25pt radius). Result: 63→10 detected (GT=10). Regression test in test_ground_truth.py guards against >2.5× over-detection.
 - [2026-04-09] Signed-area outer-face detection uses global minority sign, which works for a single connected component but discards legitimate rooms in multi-component graphs. Need per-component outer-face detection. Status: open (low priority — resolves itself when graph fragmentation is fixed).
 - [2026-04-09] split_at_intersections can inflate segment count significantly (Sample 0: 10K→17K). This is correct for planar graph construction but means the pre-split healing steps (snap, merge, dedup) must be aggressive enough to reduce count first.
 - [2026-04-09] Dense PDFs (Samples 0/1/6, 10K+ raw segments) produce tiny mesh faces instead of room-sized polygons after split_at_intersections. Largest face ≤2,317 pt² vs 38,564 pt² for a real 3×4m room. Need segment reduction or clustering before splitting. Deferred — will address with user-assist crop in Sprint 4 or pre-processing filter. Status: deferred.
@@ -177,11 +177,12 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 
 ### Known limitations (deferred to Phase 2)
 - **Room coverage gap**: 7/10 PDFs produce rooms but only ~50-70% of actual rooms detected (unclosed wall polygons)
-- **Door over-detection**: 11-42 doors per page (expected 6-10). Stairwell doors included.
+- **Door detection**: 0 doors on Sample 2 (only 39 dangles), dedup improved Sample 9 (35→21 vs 15 GT). Root cause: too few wall-gap endpoints on some PDFs.
+- **Window over-detection**: FIXED in Sprint 5B. Sample 9: 63→10 (GT=10). Exterior-wall proximity filter + dedup.
 - **Legend/kartisiyyah not always cropped**: some PDFs retain legend segments as noise
 - **3 PDFs still fail room detection**: Samples 0, 1, 6 (dense graph, 10K+ segments → tiny mesh faces)
 - **Dashboard "0 structural" display**: exterior walls render correctly as red but dashboard counts them separately from "structural" category
-- **Area accuracy**: ~50% gap between calculated and stated area due to missing rooms
+- **Area accuracy**: ~78% gap on Sample 2 (22.6 vs 101.6 sqm), ~50% gap overall due to missing rooms
 
 ### Architecture
 - `/api/extract` — raw extraction only (for debug viewer)
@@ -189,6 +190,49 @@ WALL_WIDTH_RANGES: use histogram-relative, not absolute. Peaks found at ~8 value
 - `FloorplanViewer` — controlled component, data lifted to App.tsx
 - `floorplanUtils.ts` — shared AnalyzeResponse → FloorplanData converter
 - 10 room types defined in `models.py`, enforced in `classify_rooms` post-processing
+
+## Ground Truth Comparisons (2026-04-10)
+
+### Sample 9 — vector sample (duplex, 2 pages)
+Ground truth: docs/test-pdfs/sample-9-ground-truth.pdf
+JSON: backend/tests/fixtures/sample_9_ground_truth.json
+Regression test: backend/tests/test_geometry/test_ground_truth.py (10 tests, all pass)
+
+| Category | Ground Truth | Before Fix | After Fix | Accuracy |
+|----------|-------------|------------|-----------|----------|
+| Rooms | 14 (both pages) | 17 | 17 | 57% recall, 47% precision |
+| Doors | 15 | 35 (2.3×) | **21 (1.4×)** | **-40% over-detection** |
+| Windows | 10 | 63 (6.3×) | **10 (1.0×)** | **-84% over-detection** |
+| Mamad | 2 (both pages) | 2 | 2 | 100% recall |
+
+Fixes applied: door dedup (20pt radius), window exterior-wall filter + min-length + dedup (25pt radius).
+
+### Sample 2, Page 1 — T-4B apartment (Almogim/Bravo, Tel HaShomer)
+Ground truth: docs/test-pdfs/sample-2-ground-truth.pdf (page 1 only)
+JSON: docs/test-pdfs/ground-truth/sample-2-p1-ground-truth.json
+
+| Category | Ground Truth | Detected | Accuracy |
+|----------|-------------|----------|----------|
+| Rooms | 9 | 4 | 33% recall, 75% precision |
+| Room types correct | 9 | 1 (mamad) | 11% |
+| Mamad | 1 (10sqm) | 1 (12.9sqm) | correct (heuristic, 82%) |
+| Doors | 9 | 0 | **0% recall** |
+| Windows | 6 | 3 | 50% recall |
+| Total area | 101.6 sqm | 22.6 sqm | **22% coverage** |
+| Text labels available | 94 texts | — | room labels present but rooms not detected to match |
+
+Root causes:
+1. **Graph produces small polygons** — 343 healed segs but only 4 room polygons (3-13sqm). 78% of apartment area missing.
+2. **0 doors** — only 39 dangling endpoints (wall graph too well-connected, no gaps for door matching).
+3. **Fixture misclassification** — guest toilet detected as bathroom (fixture density heuristic doesn't distinguish by area < 4sqm).
+4. **Text classification blocked** — 94 texts available including all room labels, but text can only match rooms that exist as polygons.
+
+### Cross-Sample Insights
+- **Mamad detection is reliable** — detected correctly on both Sample 9 (both pages) and Sample 2.
+- **Text matching works when rooms exist** — Sample 9 text-matched rooms are 100% correct.
+- **Room polygon detection is the primary bottleneck** — classification, text matching, and openings all depend on correct room polygons.
+- **Window exterior-wall filter is effective** — 84% reduction in false positives on Sample 9, reasonable on Sample 2.
+- **Door detection varies wildly** — works on Sample 9 (dense dangles) but fails on Sample 2 (insufficient dangles).
 
 ## Test PDF Inventory
 

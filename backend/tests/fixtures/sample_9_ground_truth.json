@@ -1,0 +1,85 @@
+{
+  "_description": "Ground truth for Sample 9 (vector sample), annotated 2026-04-10. Duplex apartment, 2 pages.",
+  "_pdf": "docs/test-pdfs/- Sample 9 vector sample.pdf",
+  "_annotation": "docs/test-pdfs/sample-9-ground-truth.pdf",
+  "_key": {
+    "red_lines": "exterior walls",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "pages": {
+    "0": {
+      "label": "upper floor (מפלס עליון)",
+      "rooms": {
+        "total": 6,
+        "by_type": {
+          "bedroom": 2,
+          "bathroom": 1,
+          "guest_toilet": 1,
+          "sun_balcony": 1,
+          "mamad": 1
+        }
+      },
+      "doors": {
+        "total": 7,
+        "notes": "Entry door, 2x bedroom doors, bath door, guest toilet door, balcony door, mamad door"
+      },
+      "windows": {
+        "total": 5,
+        "notes": "On exterior walls only: BR top-left, BR bottom-left, bath-area left wall, bottom wall, stairwell area"
+      },
+      "mamad": {
+        "present": true,
+        "area_sqm_approx": 10.0,
+        "notes": "Thick-walled room, top-left area of floor plan"
+      }
+    },
+    "1": {
+      "label": "lower floor (מפלס תחתון)",
+      "rooms": {
+        "total": 8,
+        "by_type": {
+          "bedroom": 1,
+          "mamad": 1,
+          "bathroom": 1,
+          "utility": 1,
+          "service_balcony": 1,
+          "salon": 1,
+          "kitchen": 1,
+          "sun_balcony": 1
+        }
+      },
+      "doors": {
+        "total": 8,
+        "notes": "Entry door, bedroom door, mamad door, bath door, utility door, kitchen/salon passage, service balcony door, sun balcony door"
+      },
+      "windows": {
+        "total": 5,
+        "notes": "On exterior walls only: mamad top-left, BR left, salon bottom, kitchen right, sun balcony bottom"
+      },
+      "mamad": {
+        "present": true,
+        "area_sqm_approx": 10.5,
+        "notes": "Thick-walled room, top-left area. Orange-circled in annotation."
+      }
+    }
+  },
+  "totals": {
+    "rooms": 14,
+    "doors": 15,
+    "windows": 10,
+    "mamad_count": 2,
+    "mamad_notes": "Mamad on both floors of duplex (thick walls visible on both pages)"
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing. Set to catch regressions while allowing for algorithm improvements.",
+    "rooms_min": 10,
+    "rooms_max": 22,
+    "doors_min": 8,
+    "doors_max": 25,
+    "windows_min": 5,
+    "windows_max": 16,
+    "mamad_must_detect": true
+  }
+}
