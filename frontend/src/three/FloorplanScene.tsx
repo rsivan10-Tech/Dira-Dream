@@ -302,16 +302,20 @@ function OpeningsGroup({
 
   return (
     <group name="openings">
-      {items.map((item) =>
-        item.opening.type === 'window' ? (
-          <GlassPane key={`glass-${item.opening.id}`} {...item} />
-        ) : item.opening.type === 'door' ? (
-          <DoorPanel key={`door-${item.opening.id}`} {...item} />
-        ) : (
-          // french_door / sliding_door → glass pane (full height, no door panel)
-          <GlassPane key={`glass-${item.opening.id}`} {...item} />
-        ),
-      )}
+      {items.map((item) => {
+        const { type, width } = item.opening;
+        // Wide "doors" (>1.4m) are likely balcony glass/sliding doors —
+        // render with glass pane instead of opaque wood panel.
+        const isGlassDoor =
+          (type === 'door' && width > 1.4) ||
+          type === 'french_door' ||
+          type === 'sliding_door';
+
+        if (type === 'window' || isGlassDoor) {
+          return <GlassPane key={`glass-${item.opening.id}`} {...item} />;
+        }
+        return <DoorPanel key={`door-${item.opening.id}`} {...item} />;
+      })}
     </group>
   );
 }

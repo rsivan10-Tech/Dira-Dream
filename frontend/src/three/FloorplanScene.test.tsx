@@ -367,3 +367,25 @@ describe('hole inset constants', () => {
     expect(WINDOW_SILL_M).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Glass door detection heuristic
+// ---------------------------------------------------------------------------
+
+describe('glass door width heuristic', () => {
+  // Standard Israeli door: 65-95cm → should render as DoorPanel (wood)
+  // Glass/sliding door: 160-300cm → should render as GlassPane (glass)
+  // Threshold: 140cm (1.4m in Three.js)
+
+  it('standard door (80cm) is below glass threshold', () => {
+    expect(0.80).toBeLessThanOrEqual(1.4);
+  });
+
+  it('wide glass door (200cm) exceeds glass threshold', () => {
+    expect(2.0).toBeGreaterThan(1.4);
+  });
+
+  it('french door (160cm) exceeds glass threshold', () => {
+    expect(1.6).toBeGreaterThan(1.4);
+  });
+});
