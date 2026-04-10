@@ -44,8 +44,12 @@ const PERP_TOL = 8;
  */
 const MERGE_GAP = 5;
 
-/** Min wall length (PDF points) to include in output. Filters dust. */
-const MIN_WALL_LENGTH = 3;
+/**
+ * Min wall length (PDF points) to include in output.
+ * At 1:50 scale, 20pt ≈ 35cm — filters bathroom fixtures, annotation
+ * fragments, and other non-wall geometry that was classified as walls.
+ */
+const MIN_WALL_LENGTH = 20;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -173,7 +177,8 @@ export function mergeCollinearWalls(walls: Wall[]): MergedWall[] {
         );
         if (len < MIN_WALL_LENGTH) return;
 
-        // Determine wall type by priority: mamad > exterior > structural > partition
+        // Determine wall type by MAJORITY VOTE — prevents a single mamad
+        // fragment from turning an entire exterior wall orange.
         const typeCounts: Partial<Record<WallType, number>> = {};
         let bestWidth = 0;
         for (const idx of cur.wallIdxes) {
@@ -181,10 +186,10 @@ export function mergeCollinearWalls(walls: Wall[]): MergedWall[] {
           typeCounts[w.wall_type] = (typeCounts[w.wall_type] || 0) + 1;
           bestWidth = Math.max(bestWidth, w.width);
         }
-        const priority: WallType[] = ['mamad', 'exterior', 'structural', 'partition'];
         let wallType: WallType = 'partition';
-        for (const t of priority) {
-          if ((typeCounts[t] || 0) > 0) { wallType = t; break; }
+        let maxCount = 0;
+        for (const [t, c] of Object.entries(typeCounts)) {
+          if (c! > maxCount) { maxCount = c!; wallType = t as WallType; }
         }
 
         result.push({

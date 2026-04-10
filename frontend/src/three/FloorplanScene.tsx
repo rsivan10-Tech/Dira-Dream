@@ -469,15 +469,21 @@ interface SceneLayout {
 function computeLayout(data: FloorplanData): SceneLayout {
   const rawFiltered = getWallsFor3D(data);
 
+  console.log(`[3D] computeLayout: ${data.walls.length} total walls, ${rawFiltered.length} after type filter, ${data.openings.length} openings`);
+
   // 1. Remove wall fragments inside door openings.  The door gap between
   //    segments IS the opening — we just need to clear fragments that block it.
   const afterDoorFilter = filterDoorZones(rawFiltered, data.openings);
+
+  console.log(`[3D] After door zone filter: ${afterDoorFilter.length} walls (removed ${rawFiltered.length - afterDoorFilter.length})`);
 
   // 2. Merge collinear wall segments into continuous walls for 3D rendering.
   //    The healing pipeline splits walls at every intersection, producing
   //    hundreds of tiny fragments too short to cut window holes into.
   const merged = mergeCollinearWalls(afterDoorFilter);
   let mergedWalls = merged.map(mergedToWall);
+
+  console.log(`[3D] After merger: ${mergedWalls.length} merged walls`);
 
   // Remove outliers: walls whose midpoint is far from the apartment centroid.
   // Catches stairwell elements, legend fragments, and neighbor outlines that
@@ -492,10 +498,10 @@ function computeLayout(data: FloorplanData): SceneLayout {
     const dists = midpoints.map((p) =>
       Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2),
     );
-    // Threshold: median distance × 2.5
+    // Threshold: median distance × 2.0
     const sorted = [...dists].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
-    const threshold = median * 2.5;
+    const threshold = median * 2.0;
     const before = mergedWalls.length;
     mergedWalls = mergedWalls.filter((_, i) => dists[i] <= threshold);
     if (mergedWalls.length < before) {
@@ -507,12 +513,31 @@ function computeLayout(data: FloorplanData): SceneLayout {
 
   const filteredWalls = mergedWalls;
 
+  console.log(`[3D] Final wall count for rendering: ${filteredWalls.length}`);
+
   // Match openings to merged walls (now long enough for proper hole-cutting)
   const wallOpenings = matchOpeningsToWalls(
     filteredWalls,
     data.openings,
     data.scale_factor,
   );
+
+  // Log window holes being cut
+  let windowHoleCount = 0;
+  for (const [wallId, ops] of wallOpenings) {
+    const windows = ops.filter((o) => o.type === 'window');
+    if (windows.length > 0) {
+      const wall = filteredWalls.find((w) => w.id === wallId);
+      const wallLenM = wall
+        ? Math.sqrt((wall.end.x - wall.start.x) ** 2 + (wall.end.y - wall.start.y) ** 2) * data.scale_factor
+        : 0;
+      console.log(
+        `[3D] Wall ${wallId} (${wall?.wall_type}, ${wallLenM.toFixed(2)}m): ${windows.length} window holes`,
+      );
+      windowHoleCount += windows.length;
+    }
+  }
+  console.log(`[3D] Total window holes to cut: ${windowHoleCount}`);
 
   const walls = filteredWalls.length > 0 ? filteredWalls : data.walls;
 
