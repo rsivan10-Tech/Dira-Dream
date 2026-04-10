@@ -26,13 +26,6 @@ import SceneToolbar, { type ViewMode } from './SceneToolbar';
 import Minimap from './Minimap';
 import MobileControls, { isMobileDevice } from './MobileControls';
 
-/**
- * Tiny inset (1mm) applied to hole edges that coincide with the outer shape
- * boundary. Without this, earcut triangulation produces degenerate triangles
- * when hole vertices sit exactly on the outer contour (e.g. door sill at y=0).
- */
-const HOLE_INSET = 0.001;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -88,85 +81,149 @@ export function WallMesh({ wall, scaleFactor, openings }: WallMeshProps) {
     return { s, e, length, angle, thickness };
   }, [wall, scaleFactor]);
 
-  const geometry = useMemo(() => {
-    if (!geo) return null;
+  if (!geo) return null;
 
-    // No openings — simple box (more efficient)
-    if (!openings || openings.length === 0) {
-      return new THREE.BoxGeometry(geo.length, CEILING_HEIGHT_M, geo.thickness);
+  const color = WALL_COLORS[wall.wall_type] ?? WALL_COLORS.unknown;
+  const midX = (geo.s.x + geo.e.x) / 2;
+  const midZ = (geo.s.z + geo.e.z) / 2;
+  const rot: [number, number, number] = [0, -geo.angle, 0];
+
+  // No openings — simple solid wall
+  if (!openings || openings.length === 0) {
+    return (
+      <mesh
+        position={[midX, CEILING_HEIGHT_M / 2, midZ]}
+        rotation={rot}
+        userData={{ wallType: wall.wall_type, id: wall.id }}
+      >
+        <boxGeometry args={[geo.length, CEILING_HEIGHT_M, geo.thickness]} />
+        <meshStandardMaterial color={color} roughness={0.8} />
+      </mesh>
+    );
+  }
+
+  // ---- Wall splitting: build pieces around openings ----
+  // Openings are sorted by offset. We split the wall into:
+  //   solid pieces between openings + sill/lintel around each opening + glass pane
+  // All positions are in LOCAL wall coords: X along wall, Y up, centered at wall midpoint.
+  const halfLen = geo.length / 2;
+  const pieces: JSX.Element[] = [];
+
+  // Sort openings by offset (should already be sorted, but ensure)
+  const sorted = [...openings].sort((a, b) => a.offset - b.offset);
+
+  // Clamp openings to wall bounds
+  const clamped = sorted.map((op) => {
+    const halfW = op.width / 2;
+    const left = Math.max(0, op.offset - halfW);
+    const right = Math.min(geo.length, op.offset + halfW);
+    return { ...op, left, right };
+  });
+
+  let cursor = 0; // current position along wall (from start)
+
+  for (let i = 0; i < clamped.length; i++) {
+    const op = clamped[i];
+    const opLeft = op.left;
+    const opRight = op.right;
+    const opBottom = op.sillHeight;
+    const opTop = op.sillHeight + op.height;
+
+    // 1. Solid wall piece from cursor to opening left edge
+    const solidLen = opLeft - cursor;
+    if (solidLen > 0.01) {
+      const solidCenterX = cursor + solidLen / 2 - halfLen;
+      pieces.push(
+        <mesh
+          key={`${wall.id}-solid-${i}`}
+          position={[solidCenterX, CEILING_HEIGHT_M / 2, 0]}
+        >
+          <boxGeometry args={[solidLen, CEILING_HEIGHT_M, geo.thickness]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>,
+      );
     }
 
-    // Build wall face with holes for openings
-    const halfLen = geo.length / 2;
-    const shape = new THREE.Shape();
-    shape.moveTo(-halfLen, 0);
-    shape.lineTo(halfLen, 0);
-    shape.lineTo(halfLen, CEILING_HEIGHT_M);
-    shape.lineTo(-halfLen, CEILING_HEIGHT_M);
-    shape.closePath();
-
-    for (const op of openings) {
-      // Convert offset (from wall start) to centered coords
-      const cx = op.offset - halfLen;
-      let left = cx - op.width / 2;
-      let right = cx + op.width / 2;
-      let bottom = op.sillHeight;
-      let top = op.sillHeight + op.height;
-
-      // Inset hole edges that coincide with the outer shape boundary.
-      // Earcut triangulation fails silently when hole vertices sit exactly
-      // on the outer contour (produces zero-area triangles → no visible hole).
-      if (bottom <= 0) bottom = HOLE_INSET;
-      if (top >= CEILING_HEIGHT_M) top = CEILING_HEIGHT_M - HOLE_INSET;
-      if (left <= -halfLen) left = -halfLen + HOLE_INSET;
-      if (right >= halfLen) right = halfLen - HOLE_INSET;
-
-      const hole = new THREE.Path();
-      hole.moveTo(left, bottom);
-      hole.lineTo(right, bottom);
-      hole.lineTo(right, top);
-      hole.lineTo(left, top);
-      hole.closePath();
-      shape.holes.push(hole);
+    // 2. Sill piece below opening (floor to sill height)
+    if (opBottom > 0.01) {
+      const sillCenterX = (opLeft + opRight) / 2 - halfLen;
+      pieces.push(
+        <mesh
+          key={`${wall.id}-sill-${i}`}
+          position={[sillCenterX, opBottom / 2, 0]}
+        >
+          <boxGeometry args={[opRight - opLeft, opBottom, geo.thickness]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>,
+      );
     }
 
-    const extruded = new THREE.ExtrudeGeometry(shape, {
-      depth: geo.thickness,
-      bevelEnabled: false,
-    });
-    // Center on thickness axis so wall midline aligns with position
-    extruded.translate(0, 0, -geo.thickness / 2);
-    return extruded;
-  }, [geo, openings]);
+    // 3. Lintel piece above opening (opening top to ceiling)
+    const lintelHeight = CEILING_HEIGHT_M - opTop;
+    if (lintelHeight > 0.01) {
+      const lintelCenterX = (opLeft + opRight) / 2 - halfLen;
+      pieces.push(
+        <mesh
+          key={`${wall.id}-lintel-${i}`}
+          position={[lintelCenterX, opTop + lintelHeight / 2, 0]}
+        >
+          <boxGeometry args={[opRight - opLeft, lintelHeight, geo.thickness]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>,
+      );
+    }
 
-  if (!geo || !geometry) return null;
+    // 4. Glass pane in the opening
+    if (op.type === 'window' || op.type === 'french_door' || op.type === 'sliding_door') {
+      const glassCenterX = (opLeft + opRight) / 2 - halfLen;
+      pieces.push(
+        <mesh
+          key={`${wall.id}-glass-${i}`}
+          position={[glassCenterX, opBottom + op.height / 2, 0]}
+          material={glassMaterial}
+        >
+          <planeGeometry args={[opRight - opLeft, op.height]} />
+        </mesh>,
+      );
+    }
 
-  // BoxGeometry is centered at origin → position at midpoint, half-height up.
-  // ExtrudeGeometry starts at Y=0 → position at midpoint, Y=0.
-  const hasOpenings = openings && openings.length > 0;
-  const posY = hasOpenings ? 0 : CEILING_HEIGHT_M / 2;
+    console.log(
+      `[3D] Wall ${wall.id} split: ${op.type} ${op.id} at [${opLeft.toFixed(2)}-${opRight.toFixed(2)}]m, ` +
+      `sill=${opBottom.toFixed(2)}m, top=${opTop.toFixed(2)}m, wallLen=${geo.length.toFixed(2)}m`,
+    );
 
+    cursor = opRight;
+  }
+
+  // 5. Final solid piece from last opening right edge to wall end
+  const finalLen = geo.length - cursor;
+  if (finalLen > 0.01) {
+    const finalCenterX = cursor + finalLen / 2 - halfLen;
+    pieces.push(
+      <mesh
+        key={`${wall.id}-solid-end`}
+        position={[finalCenterX, CEILING_HEIGHT_M / 2, 0]}
+      >
+        <boxGeometry args={[finalLen, CEILING_HEIGHT_M, geo.thickness]} />
+        <meshStandardMaterial color={color} roughness={0.8} />
+      </mesh>,
+    );
+  }
+
+  // Wrap all pieces in a group positioned + rotated like the original wall
   return (
-    <mesh
-      geometry={geometry}
-      position={[
-        (geo.s.x + geo.e.x) / 2,
-        posY,
-        (geo.s.z + geo.e.z) / 2,
-      ]}
-      rotation={[0, -geo.angle, 0]}
+    <group
+      position={[midX, 0, midZ]}
+      rotation={rot}
       userData={{ wallType: wall.wall_type, id: wall.id }}
     >
-      <meshStandardMaterial
-        color={WALL_COLORS[wall.wall_type] ?? WALL_COLORS.unknown}
-        roughness={0.8}
-      />
-    </mesh>
+      {pieces}
+    </group>
   );
 }
 
 // ---------------------------------------------------------------------------
-// GlassPane — translucent panel for window openings
+// Glass material — shared by window panes in WallMesh and DirectDoorGroup
 // ---------------------------------------------------------------------------
 
 const glassMaterial = new THREE.MeshPhysicalMaterial({
@@ -180,35 +237,6 @@ const glassMaterial = new THREE.MeshPhysicalMaterial({
   opacity: 0.3,
   side: THREE.DoubleSide,
 });
-
-interface GlassPaneProps {
-  opening: OpeningOnWall;
-  wallStart: { x: number; z: number };
-  wallEnd: { x: number; z: number };
-  wallLength: number;
-  wallAngle: number;
-}
-
-function GlassPane({ opening, wallStart, wallEnd, wallLength, wallAngle }: GlassPaneProps) {
-  const position = useMemo(() => {
-    // Interpolate position along wall at opening.offset
-    const t = opening.offset / wallLength;
-    const x = wallStart.x + t * (wallEnd.x - wallStart.x);
-    const z = wallStart.z + t * (wallEnd.z - wallStart.z);
-    const y = opening.sillHeight + opening.height / 2;
-    return [x, y, z] as [number, number, number];
-  }, [opening, wallStart, wallEnd, wallLength]);
-
-  return (
-    <mesh
-      position={position}
-      rotation={[0, -wallAngle, 0]}
-      material={glassMaterial}
-    >
-      <planeGeometry args={[opening.width, opening.height]} />
-    </mesh>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Door material (shared by DirectDoorGroup)
@@ -244,61 +272,6 @@ function WallGroup({ walls, scaleFactor, wallOpenings, groupRef }: WallGroupProp
           />
         );
       })}
-    </group>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// OpeningsGroup — glass panes for windows, door panels for doors
-// ---------------------------------------------------------------------------
-
-function OpeningsGroup({
-  walls,
-  scaleFactor,
-  wallOpenings,
-}: WallGroupProps) {
-  const items = useMemo(() => {
-    const result: Array<{
-      opening: OpeningOnWall;
-      wallStart: { x: number; z: number };
-      wallEnd: { x: number; z: number };
-      wallLength: number;
-      wallAngle: number;
-    }> = [];
-
-    for (const wall of walls) {
-      const openings = wallOpenings.get(wall.id);
-      if (!openings || openings.length === 0) continue;
-
-      const s = pdfToThree(toCm(wall.start.x, scaleFactor), toCm(wall.start.y, scaleFactor));
-      const e = pdfToThree(toCm(wall.end.x, scaleFactor), toCm(wall.end.y, scaleFactor));
-      const dx = e.x - s.x;
-      const dz = e.z - s.z;
-      const length = Math.sqrt(dx * dx + dz * dz);
-      const angle = Math.atan2(dz, dx);
-
-      for (const op of openings) {
-        result.push({
-          opening: op,
-          wallStart: s,
-          wallEnd: e,
-          wallLength: length,
-          wallAngle: angle,
-        });
-      }
-    }
-    return result;
-  }, [walls, scaleFactor, wallOpenings]);
-
-  // Only render window glass panes here.  Doors are rendered by
-  // DirectDoorGroup using endpoint positions directly from the API.
-  const windowItems = items.filter((item) => item.opening.type === 'window');
-
-  return (
-    <group name="window-glass">
-      {windowItems.map((item) => (
-        <GlassPane key={`glass-${item.opening.id}`} {...item} />
-      ))}
     </group>
   );
 }
@@ -590,22 +563,27 @@ function computeLayout(data: FloorplanData): SceneLayout {
     data.scale_factor,
   );
 
-  // Log window holes being cut
+  // Log all matched openings (windows + glass doors)
   let windowHoleCount = 0;
+  let totalOpeningsMatched = 0;
   for (const [wallId, ops] of wallOpenings) {
+    totalOpeningsMatched += ops.length;
     const windows = ops.filter((o) => o.type === 'window');
     if (windows.length > 0) {
       const wall = filteredWalls.find((w) => w.id === wallId);
       const wallLenM = wall
         ? Math.sqrt((wall.end.x - wall.start.x) ** 2 + (wall.end.y - wall.start.y) ** 2) * data.scale_factor
         : 0;
-      console.log(
-        `[3D] Wall ${wallId} (${wall?.wall_type}, ${wallLenM.toFixed(2)}m): ${windows.length} window holes`,
-      );
+      for (const win of windows) {
+        console.log(
+          `[3D] WINDOW HOLE: ${win.id} on wall ${wallId} (${wall?.wall_type}, ${wallLenM.toFixed(2)}m): ` +
+          `offset=${win.offset.toFixed(3)}m, size=${win.width.toFixed(2)}x${win.height.toFixed(2)}m, sill=${win.sillHeight.toFixed(2)}m`,
+        );
+      }
       windowHoleCount += windows.length;
     }
   }
-  console.log(`[3D] Total window holes to cut: ${windowHoleCount}`);
+  console.log(`[3D] Total openings matched: ${totalOpeningsMatched} (${windowHoleCount} windows, ${totalOpeningsMatched - windowHoleCount} others)`);
 
   const walls = filteredWalls.length > 0 ? filteredWalls : data.walls;
 
@@ -783,11 +761,7 @@ export default function FloorplanScene({ data }: FloorplanSceneProps) {
           groupRef={wallGroupRef}
         />
 
-        <OpeningsGroup
-          walls={layout.filteredWalls}
-          scaleFactor={data.scale_factor}
-          wallOpenings={layout.wallOpenings}
-        />
+        {/* OpeningsGroup removed — glass panes now rendered inline by WallMesh */}
 
         <DirectDoorGroup
           openings={data.openings}

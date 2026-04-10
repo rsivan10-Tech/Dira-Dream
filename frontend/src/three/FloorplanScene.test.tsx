@@ -387,7 +387,7 @@ describe('matchOpeningsToWalls', () => {
 // Hole geometry — verify insets prevent edge-sharing
 // ---------------------------------------------------------------------------
 
-describe('hole inset constants', () => {
+describe('opening dimension constants', () => {
   it('door height (2.10m) is less than ceiling height (2.60m)', () => {
     expect(DOOR_HEIGHT_M).toBeLessThan(CEILING_HEIGHT_M);
   });

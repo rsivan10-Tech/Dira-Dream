@@ -266,13 +266,14 @@ function WindowShape({
   opening,
   scaleFactor,
   scale,
+  walls,
 }: {
   opening: Opening;
   scaleFactor: number;
   scale: number;
+  walls: Wall[];
 }) {
   // Convert cm back to PDF points for rendering
-  // scaleFactor = metres per PDF point, so 1 cm = 0.01 / scaleFactor points
   const widthPt = scaleFactor > 0
     ? (opening.width_cm / 100) / scaleFactor
     : 20;  // fallback
@@ -280,16 +281,44 @@ function WindowShape({
   const sw = Math.max(1.5, 1.5 / scale);
   const gap = Math.max(2, 3 / scale);
 
+  // Find nearest wall to determine window orientation
+  const px = opening.position.x;
+  const py = opening.position.y;
+  let bestDist = Infinity;
+  let wallAngle = 0; // default: horizontal
+
+  for (const w of walls) {
+    const dx = w.end.x - w.start.x;
+    const dy = w.end.y - w.start.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq < 1) continue;
+    const t = Math.max(0, Math.min(1, ((px - w.start.x) * dx + (py - w.start.y) * dy) / lenSq));
+    const projX = w.start.x + t * dx;
+    const projY = w.start.y + t * dy;
+    const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+    if (dist < bestDist) {
+      bestDist = dist;
+      wallAngle = Math.atan2(dy, dx);
+    }
+  }
+
+  // Draw 3 parallel lines along the wall direction, offset perpendicular
+  const cosA = Math.cos(wallAngle);
+  const sinA = Math.sin(wallAngle);
+  // Perpendicular direction
+  const perpX = -sinA;
+  const perpY = cosA;
+
   return (
     <Group listening={false}>
       {[-gap, 0, gap].map((offset, i) => (
         <Line
           key={i}
           points={[
-            opening.position.x - halfW,
-            opening.position.y + offset,
-            opening.position.x + halfW,
-            opening.position.y + offset,
+            px - halfW * cosA + offset * perpX,
+            py - halfW * sinA + offset * perpY,
+            px + halfW * cosA + offset * perpX,
+            py + halfW * sinA + offset * perpY,
           ]}
           stroke="#4682B4"
           strokeWidth={sw}
@@ -1108,7 +1137,7 @@ export default function FloorplanViewer({
                       opening.type === 'door' ? (
                         <DoorShape key={opening.id} opening={opening} scaleFactor={data.scale_factor} scale={scale} />
                       ) : (
-                        <WindowShape key={opening.id} opening={opening} scaleFactor={data.scale_factor} scale={scale} />
+                        <WindowShape key={opening.id} opening={opening} scaleFactor={data.scale_factor} scale={scale} walls={data.walls} />
                       ),
                     )}
                   </Layer>

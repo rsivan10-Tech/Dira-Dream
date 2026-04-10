@@ -166,9 +166,22 @@ export function matchOpeningsToWalls(
           )
         : pdfPointsToThree(opening.position.x, opening.position.y, scaleFactor);
 
+    // Type-specific matching threshold
+    const threshold =
+      opening.type === 'window'
+        ? MATCH_THRESHOLD_WINDOW_M
+        : MATCH_THRESHOLD_GLASS_DOOR_M;
+
+    // For windows: prefer exterior/mamad walls over partition walls.
+    // Windows often sit between a partition and an exterior wall;
+    // the partition may be marginally closer but is the wrong match.
     let bestWall: Wall3D | null = null;
     let bestDist = Infinity;
     let bestT = 0;
+    // Also track best exterior/mamad wall separately for windows
+    let bestExteriorWall: Wall3D | null = null;
+    let bestExteriorDist = Infinity;
+    let bestExteriorT = 0;
 
     for (const w3d of walls3d) {
       if (w3d.length < 0.01) continue; // skip degenerate walls
@@ -180,26 +193,43 @@ export function matchOpeningsToWalls(
         bestWall = w3d;
         bestT = t;
       }
+      // Track best exterior/mamad wall for window preference
+      if (opening.type === 'window' && distance < bestExteriorDist) {
+        const wData = walls.find((w) => w.id === w3d.id);
+        if (wData && wData.wall_type !== 'partition') {
+          bestExteriorDist = distance;
+          bestExteriorWall = w3d;
+          bestExteriorT = t;
+        }
+      }
     }
 
-    // Type-specific matching threshold
-    const threshold =
-      opening.type === 'window'
-        ? MATCH_THRESHOLD_WINDOW_M
-        : MATCH_THRESHOLD_GLASS_DOOR_M;
+    // For windows: use the exterior wall if one is nearby (within 2x
+    // the partition distance or within threshold), even if a partition
+    // wall is slightly closer.
+    if (opening.type === 'window' && bestExteriorWall && bestExteriorDist <= threshold) {
+      const matchedWallData = walls.find((w) => w.id === bestWall!.id);
+      if (matchedWallData?.wall_type === 'partition') {
+        console.log(
+          `[3D] Window ${opening.id}: preferring exterior wall ${bestExteriorWall.id} (${bestExteriorDist.toFixed(3)}m) over partition ${bestWall!.id} (${bestDist.toFixed(3)}m)`,
+        );
+        bestWall = bestExteriorWall;
+        bestDist = bestExteriorDist;
+        bestT = bestExteriorT;
+      }
+    }
 
     if (!bestWall || bestDist > threshold) {
       continue;
     }
 
-    // Windows should only appear on exterior/mamad walls (not partition).
-    // The parallel-line window detector produces many false positives on
-    // interior furniture and annotation lines.
+    // Final partition check: if window still matched to partition
+    // (no exterior wall nearby), skip it.
     if (opening.type === 'window') {
       const matchedWallData = walls.find((w) => w.id === bestWall!.id);
       if (matchedWallData?.wall_type === 'partition') {
         console.warn(
-          `[3D] Skipping window ${opening.id} on partition wall ${bestWall!.id} (dist=${bestDist.toFixed(3)}m)`,
+          `[3D] Skipping window ${opening.id} on partition wall ${bestWall!.id} — no exterior wall nearby`,
         );
         continue;
       }
