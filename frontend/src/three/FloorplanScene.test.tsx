@@ -14,9 +14,13 @@ import {
   WALL_THICKNESS_M,
   WALL_COLORS,
   FLOOR_COLORS,
+  DOOR_HEIGHT_M,
+  WINDOW_HEIGHT_M,
+  WINDOW_SILL_M,
 } from './coordinateUtils';
 import { getWallsFor3D } from './FloorplanScene';
-import type { FloorplanData, Wall } from '@/types/floorplan';
+import { matchOpeningsToWalls } from './openingUtils';
+import type { FloorplanData, Wall, Opening } from '@/types/floorplan';
 
 // ---------------------------------------------------------------------------
 // Coordinate transform
@@ -238,5 +242,128 @@ describe('floor polygon (4×3m room)', () => {
   it('ceiling is at y=2.60m', () => {
     // CeilingMesh sets position={[0, CEILING_HEIGHT_M, 0]}
     expect(CEILING_HEIGHT_M).toBe(2.6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Opening-to-wall matching
+// ---------------------------------------------------------------------------
+
+function makeOpening(overrides: Partial<Opening> & Pick<Opening, 'position' | 'width_cm'>): Opening {
+  return {
+    id: 'op-test',
+    type: 'door',
+    wall_id: '',
+    rooms: [],
+    ...overrides,
+  };
+}
+
+describe('matchOpeningsToWalls', () => {
+  // Wall from (100,200) to (400,200) in PDF points, 1:50 scale
+  const SF = 0.01764;
+  const testWalls: Wall[] = [
+    makeWall({
+      id: 'w1',
+      wall_type: 'exterior',
+      start: { x: 100, y: 200 },
+      end: { x: 400, y: 200 },
+    }),
+  ];
+
+  it('matches a door whose midpoint is in the gap between wall segments', () => {
+    // Door midpoint at (250, 200) — on the wall line
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'door-1',
+        type: 'door',
+        position: { x: 250, y: 200 },
+        width_cm: 80,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
+    expect(result.size).toBe(1);
+    expect(result.get('w1')).toHaveLength(1);
+
+    const matched = result.get('w1')![0];
+    expect(matched.type).toBe('door');
+    expect(matched.sillHeight).toBe(0);
+    expect(matched.height).toBeCloseTo(DOOR_HEIGHT_M, 4);
+    expect(matched.width).toBeCloseTo(0.8, 2);
+  });
+
+  it('matches a window near the wall', () => {
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'win-1',
+        type: 'window',
+        position: { x: 300, y: 200 },
+        width_cm: 120,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
+    expect(result.size).toBe(1);
+
+    const matched = result.get('w1')![0];
+    expect(matched.type).toBe('window');
+    expect(matched.sillHeight).toBeCloseTo(WINDOW_SILL_M, 4);
+    expect(matched.height).toBeCloseTo(WINDOW_HEIGHT_M, 4);
+  });
+
+  it('rejects opening too far from any wall (> threshold)', () => {
+    // Opening 200 PDF pts above the wall → ~3.5m away
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'far-1',
+        type: 'door',
+        position: { x: 250, y: 400 },
+        width_cm: 80,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
+    expect(result.size).toBe(0);
+  });
+
+  it('returns empty map when no openings provided', () => {
+    const result = matchOpeningsToWalls(testWalls, [], SF);
+    expect(result.size).toBe(0);
+  });
+
+  it('clamps opening offset to stay within wall bounds', () => {
+    // Opening at the very start of the wall
+    const openings: Opening[] = [
+      makeOpening({
+        id: 'edge-1',
+        type: 'door',
+        position: { x: 100, y: 200 },
+        width_cm: 80,
+      }),
+    ];
+
+    const result = matchOpeningsToWalls(testWalls, openings, SF);
+    const matched = result.get('w1')![0];
+    // Offset should be clamped so opening doesn't extend past wall start
+    expect(matched.offset).toBeGreaterThanOrEqual(matched.width / 2 + 0.02);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hole geometry — verify insets prevent edge-sharing
+// ---------------------------------------------------------------------------
+
+describe('hole inset constants', () => {
+  it('door height (2.10m) is less than ceiling height (2.60m)', () => {
+    expect(DOOR_HEIGHT_M).toBeLessThan(CEILING_HEIGHT_M);
+  });
+
+  it('window top (sill + height = 2.10m) is less than ceiling height', () => {
+    expect(WINDOW_SILL_M + WINDOW_HEIGHT_M).toBeLessThanOrEqual(CEILING_HEIGHT_M);
+  });
+
+  it('window sill (0.90m) is above floor level', () => {
+    expect(WINDOW_SILL_M).toBeGreaterThan(0);
   });
 });

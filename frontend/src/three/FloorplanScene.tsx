@@ -15,6 +15,13 @@ import {
   WALL_COLORS,
   FLOOR_COLORS,
 } from './coordinateUtils';
+
+/**
+ * Tiny inset (1mm) applied to hole edges that coincide with the outer shape
+ * boundary. Without this, earcut triangulation produces degenerate triangles
+ * when hole vertices sit exactly on the outer contour (e.g. door sill at y=0).
+ */
+const HOLE_INSET = 0.001;
 import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
 
 // ---------------------------------------------------------------------------
@@ -92,10 +99,18 @@ export function WallMesh({ wall, scaleFactor, openings }: WallMeshProps) {
     for (const op of openings) {
       // Convert offset (from wall start) to centered coords
       const cx = op.offset - halfLen;
-      const left = cx - op.width / 2;
-      const right = cx + op.width / 2;
-      const bottom = op.sillHeight;
-      const top = op.sillHeight + op.height;
+      let left = cx - op.width / 2;
+      let right = cx + op.width / 2;
+      let bottom = op.sillHeight;
+      let top = op.sillHeight + op.height;
+
+      // Inset hole edges that coincide with the outer shape boundary.
+      // Earcut triangulation fails silently when hole vertices sit exactly
+      // on the outer contour (produces zero-area triangles → no visible hole).
+      if (bottom <= 0) bottom = HOLE_INSET;
+      if (top >= CEILING_HEIGHT_M) top = CEILING_HEIGHT_M - HOLE_INSET;
+      if (left <= -halfLen) left = -halfLen + HOLE_INSET;
+      if (right >= halfLen) right = halfLen - HOLE_INSET;
 
       const hole = new THREE.Path();
       hole.moveTo(left, bottom);

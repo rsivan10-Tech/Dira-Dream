@@ -107,8 +107,12 @@ function getSillHeight(type: OpeningType): number {
 // Main matching function
 // ---------------------------------------------------------------------------
 
-/** Maximum distance (meters) from opening to wall to be considered a match. */
-const MATCH_THRESHOLD_M = 0.5;
+/**
+ * Maximum distance (meters) from opening to wall to be considered a match.
+ * Set to 0.8m to handle wider doors (90-95cm) where the midpoint of the
+ * gap between wall segments sits ~0.475m from each adjacent endpoint.
+ */
+const MATCH_THRESHOLD_M = 0.8;
 
 /** Minimum margin (meters) between opening edge and wall edge. */
 const EDGE_MARGIN_M = 0.02;
@@ -215,6 +219,14 @@ export function matchOpeningsToWalls(
     }
     result.set(wallId, filtered);
   }
+
+  // Summary log for debugging
+  let totalMatched = 0;
+  for (const list of result.values()) totalMatched += list.length;
+  const wallsWithOpenings = result.size;
+  console.log(
+    `[3D] Opening matching: ${totalMatched}/${openings.length} openings matched to ${wallsWithOpenings} walls`,
+  );
 
   return result;
 }
