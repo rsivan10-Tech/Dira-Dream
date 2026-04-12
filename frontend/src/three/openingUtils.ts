@@ -236,50 +236,27 @@ export function matchOpeningsToWalls(
     }
 
     const widthM = opening.width_cm / 100;
+    const offset = bestT * bestWall.length;
 
-    // Add opening to the best wall AND all other walls within the same
-    // distance threshold. Israeli exterior walls are double-line constructions
-    // — the merger produces parallel walls at the same position. If only one
-    // gets the opening, the other renders solid and blocks the gap.
-    const OVERLAP_TOLERANCE = 0.15; // extra margin beyond best distance
-    const addToWall = (w3d: Wall3D, t: number) => {
-      const halfW = widthM / 2;
-      const offset = t * w3d.length;
-      const clampedOffset = Math.max(
-        halfW + EDGE_MARGIN_M,
-        Math.min(w3d.length - halfW - EDGE_MARGIN_M, offset),
-      );
-      const entry: OpeningOnWall = {
-        offset: clampedOffset,
-        width: widthM,
-        height: getOpeningHeight(opening.type),
-        sillHeight: getSillHeight(opening.type),
-        type: opening.type,
-        id: opening.id,
-      };
-      const list = result.get(w3d.id) ?? [];
-      list.push(entry);
-      result.set(w3d.id, list);
+    // Clamp so opening doesn't exceed wall bounds
+    const halfW = widthM / 2;
+    const clampedOffset = Math.max(
+      halfW + EDGE_MARGIN_M,
+      Math.min(bestWall.length - halfW - EDGE_MARGIN_M, offset),
+    );
+
+    const entry: OpeningOnWall = {
+      offset: clampedOffset,
+      width: widthM,
+      height: getOpeningHeight(opening.type),
+      sillHeight: getSillHeight(opening.type),
+      type: opening.type,
+      id: opening.id,
     };
 
-    addToWall(bestWall, bestT);
-
-    // Also add to parallel overlapping walls (double-line exterior walls)
-    if (opening.type === 'window') {
-      for (const w3d of walls3d) {
-        if (w3d.id === bestWall.id) continue;
-        if (w3d.length < 0.01) continue;
-        const { distance, t } = pointToSegmentProjection(
-          pos.x, pos.z, w3d.sx, w3d.sz, w3d.ex, w3d.ez,
-        );
-        if (distance <= bestDist + OVERLAP_TOLERANCE) {
-          addToWall(w3d, t);
-          console.log(
-            `[3D] Window ${opening.id}: also splitting overlapping wall ${w3d.id} (dist=${distance.toFixed(3)}m)`,
-          );
-        }
-      }
-    }
+    const list = result.get(bestWall.id) ?? [];
+    list.push(entry);
+    result.set(bestWall.id, list);
   }
 
   // Sort each wall's openings by offset and filter overlaps

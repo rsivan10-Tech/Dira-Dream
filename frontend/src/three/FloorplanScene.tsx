@@ -19,7 +19,7 @@ import {
   BASEBOARD_HEIGHT_M,
 } from './coordinateUtils';
 import { matchOpeningsToWalls, type OpeningOnWall } from './openingUtils';
-import { mergeCollinearWalls, mergedToWall, filterDoorZones } from './wallMerger';
+import { mergeCollinearWalls, mergeParallelWalls, mergedToWall, filterDoorZones } from './wallMerger';
 import FirstPersonController, { computeStartPosition } from './FirstPersonController';
 import CameraTransition from './CameraTransition';
 import SceneToolbar, { type ViewMode } from './SceneToolbar';
@@ -521,8 +521,13 @@ function computeLayout(data: FloorplanData): SceneLayout {
   // 2. Merge collinear wall segments into continuous walls for 3D rendering.
   //    The healing pipeline splits walls at every intersection, producing
   //    hundreds of tiny fragments too short to cut window holes into.
-  const merged = mergeCollinearWalls(afterDoorFilter);
-  let mergedWalls = merged.map(mergedToWall);
+  const collinearMerged = mergeCollinearWalls(afterDoorFilter);
+
+  // 3. Merge parallel overlapping walls — Israeli PDFs draw exterior walls
+  //    as 2-3 parallel lines (inner/outer face + fill). Without this,
+  //    overlapping wall meshes block window/door openings.
+  const parallelMerged = mergeParallelWalls(collinearMerged);
+  let mergedWalls = parallelMerged.map(mergedToWall);
 
   console.log(`[3D] After merger: ${mergedWalls.length} merged walls`);
 

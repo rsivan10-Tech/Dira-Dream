@@ -233,6 +233,169 @@ export function mergeCollinearWalls(walls: Wall[]): MergedWall[] {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Parallel wall merger — collapses double/triple-line walls into single walls
+// ---------------------------------------------------------------------------
+
+/** Max angle diff (radians) for parallel check (~5°). */
+const PARALLEL_ANGLE_TOL = (5 * Math.PI) / 180;
+
+/** Max perpendicular distance (PDF points) between parallel walls.
+ *  35cm at 1:50 scale ≈ 20pt. We use a generous 25pt to cover mamad (35cm). */
+const MAX_PERP_DIST_PT = 25;
+
+/** Minimum overlap fraction of the shorter wall to consider a pair. */
+const MIN_OVERLAP_FRAC = 0.3;
+
+/**
+ * Merge parallel overlapping walls into single walls.
+ *
+ * Israeli PDFs draw exterior walls as 2-3 parallel lines (inner face,
+ * outer face, fill). After collinear merging, these produce separate
+ * wall meshes at the same position. This step collapses them into one
+ * wall per physical wall, with thickness = perpendicular distance.
+ */
+export function mergeParallelWalls(walls: MergedWall[]): MergedWall[] {
+  if (walls.length <= 1) return walls;
+
+  // Compute angle + direction for each wall
+  const info = walls.map((w) => {
+    const dx = w.end.x - w.start.x;
+    const dy = w.end.y - w.start.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const ang = normAngle(Math.atan2(dy, dx));
+    return { dx, dy, len, ang };
+  });
+
+  // Find parallel pairs
+  interface ParallelPair {
+    i: number;
+    j: number;
+    perpDist: number;
+    overlap: number;
+  }
+  const pairs: ParallelPair[] = [];
+
+  for (let i = 0; i < walls.length; i++) {
+    const a = info[i];
+    if (a.len < 0.01) continue;
+    const dirX = a.dx / a.len;
+    const dirY = a.dy / a.len;
+
+    for (let j = i + 1; j < walls.length; j++) {
+      const b = info[j];
+      if (b.len < 0.01) continue;
+
+      // Angle check
+      const adiff = Math.abs(a.ang - b.ang);
+      if (Math.min(adiff, Math.PI - adiff) > PARALLEL_ANGLE_TOL) continue;
+
+      // Perpendicular distance: midpoint of wall j to line of wall i
+      const bmx = (walls[j].start.x + walls[j].end.x) / 2;
+      const bmy = (walls[j].start.y + walls[j].end.y) / 2;
+      const cross = Math.abs(
+        (bmx - walls[i].start.x) * dirY - (bmy - walls[i].start.y) * dirX,
+      );
+      const perpDist = cross; // already divided by unit-length dir
+      if (perpDist > MAX_PERP_DIST_PT) continue;
+
+      // Overlap check: project both onto shared direction axis
+      const aT1 = walls[i].start.x * dirX + walls[i].start.y * dirY;
+      const aT2 = walls[i].end.x * dirX + walls[i].end.y * dirY;
+      const aMin = Math.min(aT1, aT2);
+      const aMax = Math.max(aT1, aT2);
+      const bT1 = walls[j].start.x * dirX + walls[j].start.y * dirY;
+      const bT2 = walls[j].end.x * dirX + walls[j].end.y * dirY;
+      const bMin = Math.min(bT1, bT2);
+      const bMax = Math.max(bT1, bT2);
+
+      const overlap = Math.max(0, Math.min(aMax, bMax) - Math.max(aMin, bMin));
+      const shorter = Math.min(a.len, b.len);
+      if (shorter < 0.01 || overlap / shorter < MIN_OVERLAP_FRAC) continue;
+
+      pairs.push({ i, j, perpDist, overlap });
+    }
+  }
+
+  // Sort pairs by perpendicular distance (closest first) for greedy merge
+  pairs.sort((a, b) => a.perpDist - b.perpDist);
+
+  const consumed = new Set<number>();
+  const result: MergedWall[] = [];
+  let nextId = 0;
+
+  for (const pair of pairs) {
+    if (consumed.has(pair.i) || consumed.has(pair.j)) continue;
+    consumed.add(pair.i);
+    consumed.add(pair.j);
+
+    const wa = walls[pair.i];
+    const wb = walls[pair.j];
+    const ia = info[pair.i];
+
+    // Merged position: midpoint between the two parallel lines
+    const dirX = ia.dx / ia.len;
+    const dirY = ia.dy / ia.len;
+
+    // Project all 4 endpoints onto direction axis to find union extent
+    const allPts = [wa.start, wa.end, wb.start, wb.end];
+    let minT = Infinity, maxT = -Infinity;
+    for (const pt of allPts) {
+      const t = pt.x * dirX + pt.y * dirY;
+      if (t < minT) minT = t;
+      if (t > maxT) maxT = t;
+    }
+
+    // Midpoint perpendicular offset: average the midpoints of both walls
+    const centerX = (wa.start.x + wa.end.x + wb.start.x + wb.end.x) / 4;
+    const centerY = (wa.start.y + wa.end.y + wb.start.y + wb.end.y) / 4;
+
+    // Perpendicular axis
+    const perpX = -dirY;
+    const perpY = dirX;
+    const cPerp = centerX * perpX + centerY * perpY;
+
+    // Reconstruct start/end at the merged centerline
+    const startX = dirX * minT + perpX * cPerp;
+    const startY = dirY * minT + perpY * cPerp;
+    const endX = dirX * maxT + perpX * cPerp;
+    const endY = dirY * maxT + perpY * cPerp;
+
+    // Type priority
+    const TYPE_PRIORITY: WallType[] = ['mamad', 'exterior', 'structural', 'partition', 'unknown'];
+    let wallType: WallType = wa.wall_type;
+    for (const t of TYPE_PRIORITY) {
+      if (wa.wall_type === t || wb.wall_type === t) {
+        wallType = t;
+        break;
+      }
+    }
+
+    result.push({
+      id: `pmerged_${nextId++}`,
+      start: { x: startX, y: startY },
+      end: { x: endX, y: endY },
+      wall_type: wallType,
+      width: Math.max(wa.width, wb.width),
+      is_structural: wallType !== 'partition',
+      is_modifiable: wallType === 'partition',
+      confidence: Math.max(wa.confidence, wb.confidence),
+      rooms: [...new Set([...wa.rooms, ...wb.rooms])],
+      originalIds: [...wa.originalIds, ...wb.originalIds],
+    });
+  }
+
+  // Add unconsumed walls as-is
+  for (let i = 0; i < walls.length; i++) {
+    if (!consumed.has(i)) result.push(walls[i]);
+  }
+
+  console.log(
+    `[3D] Parallel merger: ${walls.length} → ${result.length} walls (${pairs.length} pairs found, ${consumed.size / 2} merged)`,
+  );
+  return result;
+}
+
 /** Convert a MergedWall to a Wall (for compatibility with existing components). */
 export function mergedToWall(mw: MergedWall): Wall {
   return {
