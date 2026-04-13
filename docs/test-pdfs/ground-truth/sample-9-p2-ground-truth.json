@@ -1,0 +1,130 @@
+{
+  "_description": "Ground truth for Sample 9 page 2 (vector sample — duplex LOWER floor, contains salon/kitchen AND mamad). Annotated 2026-04-12. Confirmed 2026-04-12: mamad is on this page, not page 1. See backend/tests/fixtures/sample_9_ground_truth.json for master regression fixture.",
+  "_pdf": "docs/test-pdfs/- Sample 9 vector sample.pdf",
+  "_annotation": "docs/reference-screenshots/sample-9-ground-truth.pdf",
+  "_page": 2,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "duplex (lower floor)",
+    "developer": "Effi Capital / \u05d0\u05e4\u05d9 \u05d1\u05e2\u05e6\u05de\u05d5\u05d0\u05dc",
+    "location": "Israel",
+    "scale": "1:50",
+    "total_interior_sqm": null,
+    "balcony_sqm": 12,
+    "notes": "Duplex lower floor — living level (salon + kitchen + mamad). See page 1 for upper sleeping level. Master JSON: backend/tests/fixtures/sample_9_ground_truth.json"
+  },
+  "rooms": {
+    "total": 7,
+    "by_type": {
+      "bedroom": 1,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 1,
+      "service_balcony": 1,
+      "sun_balcony": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4",
+        "label_en": "bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 11,
+        "location": "top center-left"
+      },
+      {
+        "label_he": "\u05de\u05de\"\u05d3",
+        "label_en": "mamad",
+        "type": "mamad",
+        "area_sqm_approx": 10,
+        "location": "top center",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df",
+        "label_en": "salon",
+        "type": "salon",
+        "area_sqm_approx": 24,
+        "location": "center, largest room"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 9,
+        "location": "center-right"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "upper center-left"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony",
+        "type": "service_balcony",
+        "area_sqm_approx": 3,
+        "location": "upper left"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9",
+        "label_en": "sun balcony",
+        "type": "sun_balcony",
+        "area_sqm_approx": 12,
+        "location": "bottom, cross-hatched"
+      }
+    ]
+  },
+  "doors": {
+    "total": 6,
+    "notes": "entrance + 1 per room; mamad has blast door"
+  },
+  "windows": {
+    "total": 5,
+    "notes": "exterior windows; sun balcony facing salon"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 10,
+    "location": "top center",
+    "notes": "thickest walls, labeled \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 11,
+      "structural_interior": 2,
+      "partition": 5,
+      "mamad_boundary": 4,
+      "notes": "Duplex lower floor (living level). Mamad is on this page, labeled \u05de\u05de\"\u05d3 at top center. Visual estimate from annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 3,
+    "rooms_max": 11,
+    "doors_min": 3,
+    "doors_max": 10,
+    "windows_min": 2,
+    "windows_max": 10,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 6,
+    "walls_exterior_max": 18,
+    "walls_structural_interior_min": 1,
+    "walls_structural_interior_max": 5,
+    "walls_partition_min": 3,
+    "walls_partition_max": 10
+  }
+}

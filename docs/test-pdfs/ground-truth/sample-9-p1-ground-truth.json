@@ -1,0 +1,141 @@
+{
+  "_description": "Ground truth for Sample 9 page 1 (vector sample — duplex upper floor, sleeping level, NO mamad). Annotated 2026-04-12. Mamad confirmed on page 2 (lower floor) not here.",
+  "_pdf": "docs/test-pdfs/- Sample 9 vector sample.pdf",
+  "_annotation": "docs/reference-screenshots/sample-9-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "duplex (upper floor)",
+    "developer": "Effi Capital / \u05d0\u05e4\u05d9 \u05d1\u05e2\u05e6\u05de\u05d5\u05d0\u05dc",
+    "location": "Israel",
+    "scale": "1:50",
+    "total_interior_sqm": null,
+    "balcony_sqm": 15,
+    "notes": "Duplex upper floor — sleeping level. NO mamad on this floor (mamad is on page 2 lower floor). See backend/tests/fixtures/sample_9_ground_truth.json for master regression fixture."
+  },
+  "rooms": {
+    "total": 5,
+    "by_type": {
+      "bedroom": 2,
+      "bathroom": 1,
+      "guest_toilet": 1,
+      "sun_balcony": 1
+    },
+    "details": [
+      {
+        "id": 1,
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 1",
+        "label_en": "bedroom 1",
+        "type": "bedroom",
+        "area_sqm_approx": 13,
+        "location": "top left",
+        "has_door": true,
+        "has_window": true
+      },
+      {
+        "id": 2,
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 2",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 11,
+        "location": "bottom left",
+        "has_door": true,
+        "has_window": true
+      },
+      {
+        "id": 3,
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 6,
+        "location": "interior",
+        "has_door": true,
+        "has_window": false,
+        "notes": "has bathtub symbol"
+      },
+      {
+        "id": 4,
+        "label_he": "\u05e9\u05d9\u05e8\u05d5\u05ea\u05d9 \u05d0\u05d5\u05e8\u05d7\u05d9\u05dd",
+        "label_en": "guest toilet",
+        "type": "guest_toilet",
+        "area_sqm_approx": 3,
+        "location": "interior, small",
+        "has_door": true,
+        "has_window": false,
+        "notes": "toilet + sink"
+      },
+      {
+        "id": 5,
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9",
+        "label_en": "sun balcony",
+        "type": "sun_balcony",
+        "area_sqm_approx": 15,
+        "location": "hatched floor, outside apartment envelope",
+        "has_door": true,
+        "has_window": false,
+        "notes": "accessed via glass door; no standard window (glass door counts as opening)"
+      }
+    ]
+  },
+  "doors": {
+    "total": 6,
+    "breakdown": {
+      "bedroom_1": 1,
+      "bedroom_2": 1,
+      "bathroom": 1,
+      "guest_toilet": 1,
+      "sun_balcony_glass_door": 1,
+      "entrance_or_stair": 1
+    },
+    "notes": "5 room doors + 1 entrance/stair to lower floor; sun balcony uses glass door"
+  },
+  "windows": {
+    "total": 5,
+    "breakdown": {
+      "bedroom_1": "1+",
+      "bedroom_2": "1+",
+      "exterior_corridor_or_stair": "remaining"
+    },
+    "notes": "Only bedrooms 1 and 2 have standard windows; bathroom, guest toilet and sun balcony have none. Remaining windows on exterior walls/stair core."
+  },
+  "mamad": {
+    "present": false,
+    "count": 0,
+    "notes": "NO mamad on upper floor — mamad is on page 2 (lower floor), adjacent to salon and kitchen"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 12,
+      "structural_interior": 3,
+      "partition": 6,
+      "mamad_boundary": 0,
+      "notes": "Exterior: 12 segments forming the perimeter. Structural interior: 3 red lines inside. Partition: 6 blue lines inside. No mamad on this floor."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 3,
+    "rooms_max": 9,
+    "doors_min": 3,
+    "doors_max": 10,
+    "windows_min": 2,
+    "windows_max": 9,
+    "mamad_must_detect": false,
+    "walls_exterior_min": 6,
+    "walls_exterior_max": 20,
+    "walls_structural_interior_min": 1,
+    "walls_structural_interior_max": 6,
+    "walls_partition_min": 3,
+    "walls_partition_max": 12
+  }
+}

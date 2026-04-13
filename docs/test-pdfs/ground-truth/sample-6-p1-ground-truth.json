@@ -1,0 +1,151 @@
+{
+  "_description": "Ground truth for Sample 6 page 1 (Arnona Hills, Jerusalem — \u05de\u05d2\u05e8\u05e9 17, \u05d1\u05e0\u05d9\u05d9\u05df 17.1, \u05d3\u05d9\u05e8\u05d4 4, Type J, 4-room). Annotated 2026-04-12. Wall counts added 2026-04-12 from annotated PDF.",
+  "_pdf": "docs/test-pdfs/- Sample 6 build9-J-plan- Vector PDF.pdf",
+  "_annotation": "docs/reference-screenshots/sample-6-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "J",
+    "developer": "Arnona Hills Jerusalem / Gesher",
+    "location": "Jerusalem (\u05de\u05d2\u05e8\u05e9 17, \u05d1\u05e0\u05d9\u05d9\u05df 17.1, \u05d3\u05d9\u05e8\u05d4 4)",
+    "scale": "1:50",
+    "total_interior_sqm": 102.36,
+    "balcony_sqm": 12.0
+  },
+  "rooms": {
+    "total": 10,
+    "by_type": {
+      "bedroom": 2,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 2,
+      "sun_balcony": 1,
+      "service_balcony": 1,
+      "utility": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7. \u05e9\u05d9\u05e0\u05d4 + \u05de\u05de\"\u05d3",
+        "label_en": "mamad / bedroom",
+        "type": "mamad",
+        "area_sqm_approx": 10,
+        "location": "top left, thickest walls",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 14,
+        "location": "bottom left, has ensuite bath"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 11,
+        "location": "center-left"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df, \u05de\u05d8\u05d1\u05d7, \u05d5\u05e4\u05d9\u05e0\u05ea \u05d0\u05d5\u05db\u05dc",
+        "label_en": "salon",
+        "type": "salon",
+        "area_sqm_approx": 26,
+        "location": "center-right, open plan with kitchen+dining"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 10,
+        "location": "center, open to salon"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "top center"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 4.5,
+        "location": "bottom left, ensuite"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9 \u05de\u05e7\u05d5\u05e8\u05d4",
+        "label_en": "sun balcony (covered)",
+        "type": "sun_balcony",
+        "area_sqm_approx": 12.0,
+        "location": "bottom right, cross-hatched"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony",
+        "type": "service_balcony",
+        "area_sqm_approx": 3,
+        "location": "left side"
+      },
+      {
+        "label_he": "\u05de\u05e1\u05ea\u05d5\u05e8 \u05db\u05d1\u05d9\u05e1\u05d4 / \u05d3\u05d5\u05d3 \u05e9\u05de\u05e9",
+        "label_en": "utility / laundry",
+        "type": "utility",
+        "area_sqm_approx": 1.5,
+        "location": "upper left, labeled with boiler/AC"
+      }
+    ]
+  },
+  "doors": {
+    "total": 7,
+    "notes": "entrance + 1 per room"
+  },
+  "windows": {
+    "total": 7,
+    "notes": "on exterior walls; bedrooms on left, sun balcony on bottom right"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 10,
+    "location": "top left",
+    "notes": "thickest walls, labeled \u05d7. \u05e9\u05d9\u05e0\u05d4 + \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 17,
+      "structural_interior": 4,
+      "partition": 7,
+      "mamad_boundary": 4,
+      "notes": "Irregular-shaped apartment with many perimeter jogs. Counts are visual estimates from the annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 4,
+    "rooms_max": 14,
+    "doors_min": 3,
+    "doors_max": 12,
+    "windows_min": 3,
+    "windows_max": 12,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 10,
+    "walls_exterior_max": 25,
+    "walls_structural_interior_min": 2,
+    "walls_structural_interior_max": 8,
+    "walls_partition_min": 4,
+    "walls_partition_max": 12
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "_description": "Ground truth for Sample 0 page 1 (Type D, 6-room apartment, Kiryat HaAkademit PT, building 208). Annotated 2026-04-12.",
+  "_pdf": "docs/test-pdfs/- Sample 0 MCH-208-Floors-Type D 1-50.pdf",
+  "_annotation": "docs/reference-screenshots/sample-0-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "D",
+    "developer": "Kiryat HaAkademit PT (building 208)",
+    "location": "Petach Tikva",
+    "scale": "1:50",
+    "total_interior_sqm": 154.1,
+    "balcony_sqm": 14.6
+  },
+  "rooms": {
+    "total": 13,
+    "by_type": {
+      "bedroom": 4,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 2,
+      "guest_toilet": 1,
+      "sun_balcony": 1,
+      "service_balcony": 1,
+      "utility": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 1 / \u05d9\u05d7\u05d9\u05d3\u05ea \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom (bedroom 1)",
+        "type": "bedroom",
+        "area_sqm_approx": 18,
+        "location": "top left, has ensuite bath"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 2",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 12,
+        "location": "left side, upper-middle"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 3",
+        "label_en": "bedroom 3",
+        "type": "bedroom",
+        "area_sqm_approx": 11,
+        "location": "left side, middle"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 4",
+        "label_en": "bedroom 4",
+        "type": "bedroom",
+        "area_sqm_approx": 11,
+        "location": "left side, lower-middle"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 5 / \u05de\u05de\"\u05d3",
+        "label_en": "mamad / bedroom 5",
+        "type": "mamad",
+        "area_sqm_approx": 12,
+        "location": "bottom left, thickest walls",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df / \u05e4\u05d9\u05e0\u05ea \u05d0\u05d5\u05db\u05dc",
+        "label_en": "salon / dining",
+        "type": "salon",
+        "area_sqm_approx": 32,
+        "location": "center-right, largest room"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 12,
+        "location": "upper center, adjacent to dining"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "top center, ensuite to master bedroom"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "main bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "center, near corridor serving bedrooms 2-4"
+      },
+      {
+        "label_he": "\u05e9\u05d9\u05e8\u05d5\u05ea\u05d9 \u05d0\u05d5\u05e8\u05d7\u05d9\u05dd",
+        "label_en": "guest toilet",
+        "type": "guest_toilet",
+        "area_sqm_approx": 3,
+        "location": "center, near entrance"
+      },
+      {
+        "label_he": "\u05de\u05e1\u05ea\u05d5\u05e8 \u05db\u05d1\u05d9\u05e1\u05d4",
+        "label_en": "utility / laundry hide",
+        "type": "utility",
+        "area_sqm_approx": 2,
+        "location": "bottom, adjacent to service balcony"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9",
+        "label_en": "sun balcony",
+        "type": "sun_balcony",
+        "area_sqm_approx": 14.6,
+        "location": "top right, cross-hatched"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony",
+        "type": "service_balcony",
+        "area_sqm_approx": 4,
+        "location": "bottom, near mamad"
+      }
+    ]
+  },
+  "doors": {
+    "total": 10,
+    "notes": "entrance + 1 per room; higher count due to 4 bedrooms"
+  },
+  "windows": {
+    "total": 10,
+    "notes": "on exterior walls; 4 left-side bedroom windows, 3 on sun balcony (skylight + glass door + side), 2-3 on right side service/utility"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 12,
+    "location": "bottom left",
+    "notes": "thickest walls, labeled \u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 5 / \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 16,
+      "structural_interior": 4,
+      "partition": 11,
+      "mamad_boundary": 4,
+      "notes": "Complex L-shaped apartment with 4 bedrooms on left wing and salon/dining on right. Many perimeter jogs for balcony bumps. Visual estimate from annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 5,
+    "rooms_max": 16,
+    "doors_min": 4,
+    "doors_max": 18,
+    "windows_min": 4,
+    "windows_max": 18,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 10,
+    "walls_exterior_max": 24,
+    "walls_structural_interior_min": 2,
+    "walls_structural_interior_max": 8,
+    "walls_partition_min": 6,
+    "walls_partition_max": 16
+  }
+}

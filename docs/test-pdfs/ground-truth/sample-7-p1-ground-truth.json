@@ -1,0 +1,145 @@
+{
+  "_description": "Ground truth for Sample 7 page 1 (Dimona, \u05de\u05d2\u05e8\u05e9\u05d9\u05dd 464+465, Type A, 3-room apartment). Annotated 2026-04-12. Wall counts added 2026-04-12 from annotated PDF.",
+  "_pdf": "docs/test-pdfs/- Sample 7 build12-A-plan (1)- vector pdf.pdf",
+  "_annotation": "docs/reference-screenshots/sample-7-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "A (3-room)",
+    "developer": "Shalag / Y.Z.M.H.T Architects",
+    "location": "Dimona, \u05de\u05d2\u05e8\u05e9\u05d9\u05dd 464+465",
+    "scale": "1:50",
+    "total_interior_sqm": 85.64,
+    "balcony_sqm": 8.66,
+    "notes": "salon label shows 85.64 m\u00b2 (likely entire apartment); sun balcony 8.66 m\u00b2"
+  },
+  "rooms": {
+    "total": 9,
+    "by_type": {
+      "bedroom": 1,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 2,
+      "sun_balcony": 1,
+      "service_balcony": 1,
+      "utility": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 12,
+        "location": "top, adjacent to mamad"
+      },
+      {
+        "label_he": "\u05de\u05de\"\u05d3",
+        "label_en": "mamad",
+        "type": "mamad",
+        "area_sqm_approx": 10,
+        "location": "center-left, thickest walls",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df",
+        "label_en": "salon",
+        "type": "salon",
+        "area_sqm_approx": 22,
+        "location": "center-right, open to kitchen"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7 \u05d5\u05e4\u05d9\u05e0\u05ea \u05d0\u05d5\u05db\u05dc",
+        "label_en": "kitchen & dining",
+        "type": "kitchen",
+        "area_sqm_approx": 12,
+        "location": "bottom right"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "top right"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 4.5,
+        "location": "center"
+      },
+      {
+        "label_he": "\u05de\u05e1\u05ea\u05d5\u05e8 \u05db\u05d1\u05d9\u05e1\u05d4",
+        "label_en": "utility / laundry hide",
+        "type": "utility",
+        "area_sqm_approx": 2,
+        "location": "top right, labeled \u05db\u05d1\u05d9\u05e1\u05d4"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony",
+        "type": "service_balcony",
+        "area_sqm_approx": 3,
+        "location": "top right edge"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9",
+        "label_en": "sun balcony",
+        "type": "sun_balcony",
+        "area_sqm_approx": 8.66,
+        "location": "bottom center"
+      }
+    ]
+  },
+  "doors": {
+    "total": 6,
+    "notes": "entrance + 1 per interior room"
+  },
+  "windows": {
+    "total": 10,
+    "notes": "many exterior windows on bedrooms, mamad, salon, kitchen"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 10,
+    "location": "center-left",
+    "notes": "thickest walls, labeled \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 13,
+      "structural_interior": 3,
+      "partition": 6,
+      "mamad_boundary": 4,
+      "notes": "L-shaped apartment with bedroom wing top, salon/kitchen bottom. Counts are visual estimates from the annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 3,
+    "rooms_max": 13,
+    "doors_min": 3,
+    "doors_max": 12,
+    "windows_min": 4,
+    "windows_max": 15,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 8,
+    "walls_exterior_max": 20,
+    "walls_structural_interior_min": 1,
+    "walls_structural_interior_max": 6,
+    "walls_partition_min": 3,
+    "walls_partition_max": 10
+  }
+}

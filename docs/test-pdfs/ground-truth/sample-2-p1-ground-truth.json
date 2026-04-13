@@ -116,7 +116,14 @@
   "walls": {
     "structural_exterior": "red lines on perimeter — building envelope, immovable",
     "structural_interior": "red lines interior — load-bearing walls running full apartment width",
-    "partition": "blue lines interior — removable/movable"
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 11,
+      "structural_interior": 3,
+      "partition": 6,
+      "mamad_boundary": 4,
+      "notes": "T-4B apartment, mostly rectangular with balcony bump and service balcony jog. Visual estimate from annotated PDF overlay."
+    }
   },
   "tolerances": {
     "_description": "Acceptable ranges for regression testing",
@@ -126,6 +133,12 @@
     "doors_max": 18,
     "windows_min": 2,
     "windows_max": 12,
-    "mamad_must_detect": true
+    "mamad_must_detect": true,
+    "walls_exterior_min": 6,
+    "walls_exterior_max": 18,
+    "walls_structural_interior_min": 1,
+    "walls_structural_interior_max": 6,
+    "walls_partition_min": 3,
+    "walls_partition_max": 12
   }
 }

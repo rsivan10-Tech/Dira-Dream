@@ -1,0 +1,152 @@
+{
+  "_description": "Ground truth for Sample 5 page 1 (Rambam, Ra'anana — 4-room apartment, NORTH orientation, apts 7/15/23/31 floors 1-4). Annotated 2026-04-12. Wall counts added 2026-04-12.",
+  "_pdf": "docs/test-pdfs/- Sample 5 4-Rooms-Newer2.pdf",
+  "_annotation": "docs/reference-screenshots/sample-5 4-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "4-room NORTH",
+    "developer": "Capital Platinum",
+    "location": "Rambam St, Ra'anana",
+    "scale": "1:50",
+    "total_interior_sqm": 101.94,
+    "balcony_sqm": 12.0,
+    "notes": "Total 113.94 sqm; apartments no. 7, 15, 23, 31 (floors 1-4)"
+  },
+  "rooms": {
+    "total": 10,
+    "by_type": {
+      "bedroom": 2,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 2,
+      "sun_balcony": 1,
+      "service_balcony": 1,
+      "utility": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 14,
+        "location": "right side"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 9,
+        "location": "center-right"
+      },
+      {
+        "label_he": "\u05d7. \u05e9\u05d9\u05e0\u05d4 / \u05de\u05de\"\u05d3",
+        "label_en": "mamad / bedroom",
+        "type": "mamad",
+        "area_sqm_approx": 9,
+        "location": "upper center-right",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df",
+        "label_en": "salon",
+        "type": "salon",
+        "area_sqm_approx": 24,
+        "location": "center, largest room"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 10,
+        "location": "center-left"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "right, ensuite"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4",
+        "label_en": "bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 4.5,
+        "location": "center-right"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9",
+        "label_en": "sun balcony",
+        "type": "sun_balcony",
+        "area_sqm_approx": 12.0,
+        "location": "top, cross-hatched"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony",
+        "type": "service_balcony",
+        "area_sqm_approx": 2,
+        "location": "upper left"
+      },
+      {
+        "label_he": "\u05de\u05e1\u05ea\u05d5\u05e8 \u05db\u05d1\u05d9\u05e1\u05d4 / \u05d3\u05d5\u05d3 \u05e9\u05de\u05e9",
+        "label_en": "utility / laundry",
+        "type": "utility",
+        "area_sqm_approx": 1.5,
+        "location": "upper left alcove"
+      }
+    ]
+  },
+  "doors": {
+    "total": 7,
+    "notes": "entrance + 1 per room"
+  },
+  "windows": {
+    "total": 6,
+    "notes": "on exterior walls; top facing sun balcony, right side bedrooms"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 9,
+    "location": "upper center-right",
+    "notes": "thickest walls, labeled \u05d7. \u05e9\u05d9\u05e0\u05d4 / \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 11,
+      "structural_interior": 2,
+      "partition": 6,
+      "mamad_boundary": 4,
+      "notes": "NORTH variant of 4-room Rambam plan. Visual estimate from annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 4,
+    "rooms_max": 14,
+    "doors_min": 3,
+    "doors_max": 12,
+    "windows_min": 3,
+    "windows_max": 12,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 6,
+    "walls_exterior_max": 18,
+    "walls_structural_interior_min": 1,
+    "walls_structural_interior_max": 5,
+    "walls_partition_min": 3,
+    "walls_partition_max": 12
+  }
+}

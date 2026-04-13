@@ -1,0 +1,166 @@
+{
+  "_description": "Ground truth for Sample 4 page 1 (La'ati Kadima, \u05de\u05ea\u05d7\u05dd 21-26, \u05d1\u05e0\u05d9\u05d9\u05df 8, \u05d3\u05d9\u05e8\u05d4 2, Type T6B-G, 6-room). Annotated 2026-04-12.",
+  "_pdf": "docs/test-pdfs/- Sample 4 vector pdf\u05dc\u05d0\u05d8\u05d9-\u05e7\u05d3\u05d9\u05de\u05d4-\u05e1\u05d8-\u05ea\u05db\u05e0\u05d9\u05d5\u05ea-\u05de\u05e2\u05d5\u05d3\u05db\u05df.pdf",
+  "_annotation": "docs/reference-screenshots/sample-4-ground-truth.pdf",
+  "_page": 1,
+  "_key": {
+    "red_lines_perimeter": "exterior structural walls (NEVER removable)",
+    "red_lines_interior": "interior structural walls (load-bearing, verify with engineer)",
+    "blue_lines_interior": "partition walls (removable/movable)",
+    "orange_circle": "mamad",
+    "green_circles": "door locations",
+    "purple_circles": "window locations"
+  },
+  "apartment": {
+    "type": "T6B-G",
+    "developer": "La'ati Kadima / Aleph-Beit Architects",
+    "location": "Israel (\u05de\u05ea\u05d7\u05dd 21-26, \u05d1\u05e0\u05d9\u05d9\u05df 8, \u05d3\u05d9\u05e8\u05d4 2)",
+    "scale": "1:50",
+    "total_interior_sqm": 100.35,
+    "balcony_sqm": 63.58,
+    "notes": "63.58 sqm is garden/\u05d2\u05d9\u05e0\u05d4, not balcony"
+  },
+  "rooms": {
+    "total": 12,
+    "by_type": {
+      "bedroom": 4,
+      "mamad": 1,
+      "salon": 1,
+      "kitchen": 1,
+      "bathroom": 2,
+      "guest_toilet": 1,
+      "sun_balcony": 1,
+      "service_balcony": 1
+    },
+    "details": [
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bedroom",
+        "type": "bedroom",
+        "area_sqm_approx": 14,
+        "location": "top, adjacent to mamad"
+      },
+      {
+        "label_he": "\u05d7. \u05e9\u05d9\u05e0\u05d4 / \u05de\u05de\"\u05d3",
+        "label_en": "mamad / bedroom",
+        "type": "mamad",
+        "area_sqm_approx": 11,
+        "location": "top center, thickest walls",
+        "notes": "thickest walls, NOT modifiable"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 2",
+        "label_en": "bedroom 2",
+        "type": "bedroom",
+        "area_sqm_approx": 10,
+        "location": "center-right"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 3",
+        "label_en": "bedroom 3",
+        "type": "bedroom",
+        "area_sqm_approx": 10,
+        "location": "center-right, middle"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e9\u05d9\u05e0\u05d4 4",
+        "label_en": "bedroom 4",
+        "type": "bedroom",
+        "area_sqm_approx": 10,
+        "location": "bottom right"
+      },
+      {
+        "label_he": "\u05e1\u05dc\u05d5\u05df",
+        "label_en": "salon",
+        "type": "salon",
+        "area_sqm_approx": 26,
+        "location": "center, largest room"
+      },
+      {
+        "label_he": "\u05de\u05d8\u05d1\u05d7",
+        "label_en": "kitchen",
+        "type": "kitchen",
+        "area_sqm_approx": 11,
+        "location": "center-left, open to salon"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05d4\u05d5\u05e8\u05d9\u05dd",
+        "label_en": "master bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "top, ensuite to master"
+      },
+      {
+        "label_he": "\u05d7\u05d3\u05e8 \u05e8\u05d7\u05e6\u05d4 \u05db\u05dc\u05dc\u05d9",
+        "label_en": "main bathroom",
+        "type": "bathroom",
+        "area_sqm_approx": 5,
+        "location": "bottom right"
+      },
+      {
+        "label_he": "\u05e9\u05d9\u05e8\u05d5\u05ea\u05d9 \u05d0\u05d5\u05e8\u05d7\u05d9\u05dd",
+        "label_en": "guest toilet",
+        "type": "guest_toilet",
+        "area_sqm_approx": 3,
+        "location": "top center, near entrance"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05de\u05e9 / \u05d2\u05d9\u05e0\u05d4",
+        "label_en": "sun balcony / garden",
+        "type": "sun_balcony",
+        "area_sqm_approx": 63.58,
+        "location": "bottom, large garden area"
+      },
+      {
+        "label_he": "\u05de\u05e8\u05e4\u05e1\u05ea \u05e9\u05d9\u05e8\u05d5\u05ea",
+        "label_en": "service balcony / utility",
+        "type": "service_balcony",
+        "area_sqm_approx": 3,
+        "location": "top, next to mamad"
+      }
+    ]
+  },
+  "doors": {
+    "total": 9,
+    "notes": "entrance + 1 per room; 6-room apartment"
+  },
+  "windows": {
+    "total": 10,
+    "notes": "on exterior walls; several on right side bedrooms and bottom balcony"
+  },
+  "mamad": {
+    "present": true,
+    "count": 1,
+    "area_sqm_approx": 11,
+    "location": "top center",
+    "notes": "thickest walls, labeled \u05d7. \u05e9\u05d9\u05e0\u05d4 / \u05de\u05de\"\u05d3"
+  },
+  "walls": {
+    "structural_exterior": "red lines on perimeter — building envelope, immovable",
+    "structural_interior": "red lines interior — load-bearing walls",
+    "partition": "blue lines interior — removable/movable",
+    "counts": {
+      "exterior_segments": 15,
+      "structural_interior": 4,
+      "partition": 11,
+      "mamad_boundary": 4,
+      "notes": "6-room apartment with 4 bedrooms plus mamad. Dense interior partitioning. Visual estimate from annotated PDF overlay."
+    }
+  },
+  "tolerances": {
+    "_description": "Acceptable ranges for regression testing",
+    "rooms_min": 6,
+    "rooms_max": 17,
+    "doors_min": 4,
+    "doors_max": 16,
+    "windows_min": 4,
+    "windows_max": 16,
+    "mamad_must_detect": true,
+    "walls_exterior_min": 8,
+    "walls_exterior_max": 22,
+    "walls_structural_interior_min": 2,
+    "walls_structural_interior_max": 8,
+    "walls_partition_min": 6,
+    "walls_partition_max": 16
+  }
+}
