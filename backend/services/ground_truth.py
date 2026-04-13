@@ -134,8 +134,68 @@ def run_old_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
 
 
 def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
-    """Run the Quality Sprint pipeline (parallel walls + negative space + gap openings)."""
-    raise NotImplementedError("New pipeline not built yet — arrives in Steps 1-3")
+    """Run the Quality Sprint pipeline.
+
+    Hybrid during incremental rollout:
+      - Step 1+: walls from services.wall_detection (parallel-line centerlines)
+      - Step 2+: rooms from services.room_detection (negative space)
+      - Step 3+: openings from services.opening_detection (gap-based)
+
+    Until each step lands, the corresponding stage falls back to legacy
+    geometry/ modules so the full scorecard remains runnable end-to-end.
+    """
+    from geometry.extraction import (
+        compute_stroke_histogram,
+        crop_legend,
+        extract_metadata,
+        extract_vectors,
+    )
+    from geometry.graph import build_planar_graph
+    from geometry.healing import HealingConfig, filter_largest_component, heal_geometry
+    from geometry.rooms import classify_rooms, detect_rooms
+    from geometry.structural import (
+        detect_doors_and_windows,
+        detect_mamad,
+    )
+    from services.wall_detection import find_centerline_walls
+
+    raw = extract_vectors(pdf_path, page_num=page_num)
+    meta = extract_metadata(raw["texts"])
+    cropped = crop_legend(raw)
+    histogram = compute_stroke_histogram(cropped["segments"])
+    scale_value = meta.get("scale_value") or 50
+    scale_factor = (0.0254 / 72) * scale_value
+
+    # --- NEW: parallel-line wall detection (Step 1) ---
+    centerline_walls, _ = find_centerline_walls(
+        cropped["segments"], scale_factor, histogram,
+    )
+
+    # --- LEGACY rooms + openings (until Steps 2/3 replace them) ---
+    thresh = histogram["suggested_thresholds"]
+    wall_thresh = thresh[0] if thresh else 0.5
+    wall_segs = [s for s in cropped["segments"] if s["stroke_width"] >= wall_thresh]
+    healed, _ = heal_geometry(wall_segs, HealingConfig())
+    healed = filter_largest_component(healed)
+    G, embedding, _ = build_planar_graph(healed)
+    rooms, _ = detect_rooms(G, embedding, scale_factor=scale_factor)
+    rooms = classify_rooms(rooms, cropped["texts"], healed, scale_factor=scale_factor)
+    mamad = detect_mamad(rooms, healed, scale_factor=scale_factor)
+    openings, _ = detect_doors_and_windows(healed, rooms, scale_factor=scale_factor)
+
+    total_interior = sum(
+        r.area_sqm for r in rooms
+        if r.room_type not in ("sun_balcony", "service_balcony")
+    )
+
+    return PipelineOutput(
+        rooms=rooms,
+        walls=centerline_walls,  # NEW pipeline walls
+        openings=openings,
+        mamad_detected=mamad is not None,
+        total_area_sqm=total_interior,
+        metadata=meta,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -164,21 +224,41 @@ def _score_types(detected_types: Counter, gt_types: dict) -> float:
 
 
 def _score_walls(detected_walls: list, gt_counts: dict) -> float:
-    """Per-type count accuracy averaged across wall categories present in GT."""
+    """F1 of per-type wall counts vs ground truth.
+
+    F1 = harmonic mean of precision and recall over the multiset
+    intersection. Rewards both wall-type coverage AND avoiding spurious
+    over-detection. Detected walls outside the GT type vocabulary
+    (e.g. "unknown") count against precision.
+    """
     detected_by_type = Counter(getattr(w, "wall_type", "unknown") for w in detected_walls)
-    # GT keys ↔ legacy wall_type vocabulary
-    pairs = [
-        ("exterior_segments", detected_by_type.get("exterior", 0)),
-        ("structural_interior", detected_by_type.get("structural", 0)),
-        ("partition", detected_by_type.get("partition", 0)),
-        ("mamad_boundary", detected_by_type.get("mamad", 0)),
-    ]
-    scores = []
-    for gt_key, det_count in pairs:
+    gt_to_det_key = {
+        "exterior_segments": "exterior",
+        "structural_interior": "structural",
+        "partition": "partition",
+        "mamad_boundary": "mamad",
+    }
+    matched = 0
+    total_gt = 0
+    for gt_key, det_key in gt_to_det_key.items():
         gt_val = gt_counts.get(gt_key, 0) if isinstance(gt_counts, dict) else 0
-        if isinstance(gt_val, (int, float)):
-            scores.append(_score_count(det_count, int(gt_val)))
-    return sum(scores) / len(scores) if scores else 0.0
+        if not isinstance(gt_val, (int, float)) or gt_val <= 0:
+            continue
+        gt_val = int(gt_val)
+        det_val = detected_by_type.get(det_key, 0)
+        matched += min(det_val, gt_val)
+        total_gt += gt_val
+
+    total_det = len(detected_walls)
+    if total_gt == 0:
+        return 1.0 if total_det == 0 else 0.0
+    if total_det == 0:
+        return 0.0
+    recall = matched / total_gt
+    precision = matched / total_det
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
 
 
 def _score_openings(detected: int, gt: int, tol: int = 2) -> float:
