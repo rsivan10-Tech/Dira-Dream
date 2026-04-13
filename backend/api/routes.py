@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from typing import Optional
@@ -5,6 +6,14 @@ from typing import Optional
 import fitz
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
+
+# Quality Sprint feature flag — when true, /api/analyze will use the new
+# parallel-line / negative-space / gap-opening pipeline from backend/services/.
+# Default false until Step 5 wires the branch in.
+USE_NEW_PIPELINE = os.environ.get("USE_NEW_PIPELINE", "false").lower() == "true"
+logger = logging.getLogger(__name__)
+if USE_NEW_PIPELINE:
+    logger.info("USE_NEW_PIPELINE=true (new pipeline branch will be used once built)")
 
 from geometry.extraction import (
     compute_stroke_histogram,
