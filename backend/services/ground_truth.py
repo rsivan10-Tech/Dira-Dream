@@ -150,8 +150,7 @@ def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
         extract_metadata,
         extract_vectors,
     )
-    from geometry.healing import HealingConfig, filter_largest_component, heal_geometry
-    from geometry.structural import detect_doors_and_windows
+    from services.opening_detection import detect_openings_from_gaps
     from services.room_detection import detect_rooms_negative_space
     from services.wall_detection import find_centerline_walls
 
@@ -172,13 +171,17 @@ def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
         centerline_walls, cropped["texts"], scale_factor, meta,
     )
 
-    # --- LEGACY openings (until Step 3 replaces them) ---
+    # --- NEW: door + window detection with centerline hosting (Step 3) ---
     thresh = histogram["suggested_thresholds"]
     wall_thresh = thresh[0] if thresh else 0.5
-    wall_segs = [s for s in cropped["segments"] if s["stroke_width"] >= wall_thresh]
-    healed, _ = heal_geometry(wall_segs, HealingConfig())
-    healed = filter_largest_component(healed)
-    openings, _ = detect_doors_and_windows(healed, rooms, scale_factor=scale_factor)
+    openings, _ = detect_openings_from_gaps(
+        centerline_walls,
+        cropped["segments"],
+        None,  # raw drawings unused — Bézier curves absent in our PDFs
+        scale_factor,
+        rooms=rooms,
+        wall_threshold=wall_thresh,
+    )
 
     mamad_detected = any(r.room_type == "mamad" for r in rooms)
     total_interior = sum(
