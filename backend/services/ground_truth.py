@@ -150,13 +150,9 @@ def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
         extract_metadata,
         extract_vectors,
     )
-    from geometry.graph import build_planar_graph
     from geometry.healing import HealingConfig, filter_largest_component, heal_geometry
-    from geometry.rooms import classify_rooms, detect_rooms
-    from geometry.structural import (
-        detect_doors_and_windows,
-        detect_mamad,
-    )
+    from geometry.structural import detect_doors_and_windows
+    from services.room_detection import detect_rooms_negative_space
     from services.wall_detection import find_centerline_walls
 
     raw = extract_vectors(pdf_path, page_num=page_num)
@@ -171,18 +167,20 @@ def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
         cropped["segments"], scale_factor, histogram,
     )
 
-    # --- LEGACY rooms + openings (until Steps 2/3 replace them) ---
+    # --- NEW: negative-space room detection (Step 2) ---
+    rooms, _ = detect_rooms_negative_space(
+        centerline_walls, cropped["texts"], scale_factor, meta,
+    )
+
+    # --- LEGACY openings (until Step 3 replaces them) ---
     thresh = histogram["suggested_thresholds"]
     wall_thresh = thresh[0] if thresh else 0.5
     wall_segs = [s for s in cropped["segments"] if s["stroke_width"] >= wall_thresh]
     healed, _ = heal_geometry(wall_segs, HealingConfig())
     healed = filter_largest_component(healed)
-    G, embedding, _ = build_planar_graph(healed)
-    rooms, _ = detect_rooms(G, embedding, scale_factor=scale_factor)
-    rooms = classify_rooms(rooms, cropped["texts"], healed, scale_factor=scale_factor)
-    mamad = detect_mamad(rooms, healed, scale_factor=scale_factor)
     openings, _ = detect_doors_and_windows(healed, rooms, scale_factor=scale_factor)
 
+    mamad_detected = any(r.room_type == "mamad" for r in rooms)
     total_interior = sum(
         r.area_sqm for r in rooms
         if r.room_type not in ("sun_balcony", "service_balcony")
@@ -190,9 +188,9 @@ def run_new_pipeline(pdf_path: str, page_num: int) -> PipelineOutput:
 
     return PipelineOutput(
         rooms=rooms,
-        walls=centerline_walls,  # NEW pipeline walls
+        walls=centerline_walls,
         openings=openings,
-        mamad_detected=mamad is not None,
+        mamad_detected=mamad_detected,
         total_area_sqm=total_interior,
         metadata=meta,
     )
