@@ -47,6 +47,7 @@ MIN_ROOM_SQM = 1.5                 # below this = artifact
 MAX_ROOM_SQM = 60.0                # above this = likely outdoor space, flag
 OUTSIDE_PERIMETER_RATIO = 0.30     # fraction of envelope boundary touched
                                    # ⇒ room polygon is the "outside" patch
+LABEL_PROXIMITY_CM = 30.0          # distance to consider a label "near" a poly
 
 
 # ---------------------------------------------------------------------------
@@ -277,16 +278,137 @@ _FIXTURE_TO_ROOM = {
 }
 
 
+# Substring patterns for Hebrew room labels — handle RTL extraction quirks
+# where PyMuPDF reverses character order (e.g. ממ"ד → ד" ממ) and where
+# labels are split by spaces (ד ח " ממ).
+_LABEL_PATTERNS = [
+    # (canonical_type, substrings to check after normalization)
+    ("mamad",       ["ממ\"ד", "ממד", "דממ", "\"דממ"]),
+    ("salon",       ["סלון", "דיור", "נולס"]),
+    ("kitchen",     ["מטבח", "חבטמ"]),
+    ("bedroom",     ["שינה", "הניש"]),
+    ("guest_toilet", ["שירותים", "םיתוריש", "אסלה"]),
+    ("bathroom",    ["אמבטיה", "אמבט", "טבמא", "מקלחת", "תחלקמ", "רחצה", "הצחר"]),
+    ("sun_balcony", ["מרפסת שמש", "שמש תספרמ", "מרפסת", "תספרמ"]),
+    ("service_balcony", ["מרפסת שירות", "תוריש תספרמ"]),
+    ("storage",     ["מחסן", "ןסחמ"]),
+    ("utility",     ["חדר שירות", "תוריש"]),
+]
+
+
+def _normalize_text(text: str) -> str:
+    """Strip whitespace + zero-width chars + Unicode quote variants."""
+    return (text or "").replace(" ", "").replace("\u201d", "\"").replace("\u05f4", "\"").strip()
+
+
 def _text_label_to_type(text: str) -> Optional[str]:
-    """Match Hebrew text against the room-label vocabulary."""
-    text = text.strip()
-    if text in ROOM_LABELS_HE_TO_EN:
-        return ROOM_LABELS_HE_TO_EN[text]
-    # Substring match for labels that come with adjacent dimensions/notes
-    for label, room_type in ROOM_LABELS_HE_TO_EN.items():
-        if label and label in text:
-            return room_type
+    """Match Hebrew text (possibly RTL-reversed) against the vocabulary."""
+    norm = _normalize_text(text)
+    if not norm:
+        return None
+    rev = norm[::-1]
+
+    # Direct dictionary lookup first
+    for candidate in (text.strip(), norm, rev):
+        if candidate in ROOM_LABELS_HE_TO_EN:
+            return ROOM_LABELS_HE_TO_EN[candidate]
+
+    # Distinctive substrings — mamad is "ממ" plus a quote/ד nearby. Most
+    # short Hebrew strings containing "ממ" are mamad in floorplan context;
+    # the Hebrew word for "mother" (אמא) doesn't appear on plans.
+    if ("ממ" in norm or "ממ" in rev) and len(norm) <= 6:
+        return "mamad"
+
+    # Pattern substring match (mamad first — most distinctive)
+    for room_type, patterns in _LABEL_PATTERNS:
+        for p in patterns:
+            p_norm = _normalize_text(p)
+            if p_norm and (p_norm in norm or p_norm in rev):
+                return room_type
     return None
+
+
+def _text_centroid(t: dict) -> Optional[tuple[float, float]]:
+    bbox = t.get("bbox")
+    if not bbox or len(bbox) < 4:
+        return None
+    return ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
+
+
+def _allocate_labels_to_polygons(
+    polygons: list[Polygon],
+    texts: list,
+    proximity_pt: float,
+) -> dict:
+    """Assign each label to one polygon (containing > nearest-within-range).
+
+    Returns dict[poly_index → (room_type, confidence)]. Each polygon gets
+    AT MOST ONE label allocation; we prefer labels strictly inside the
+    polygon, falling back to the nearest polygon within proximity_pt.
+
+    Mamad labels get priority: even if a polygon already has a different
+    label, mamad overrides because the regulation guarantees there's
+    exactly one mamad and it's structurally distinctive.
+    """
+    allocations: dict[int, tuple[str, float]] = {}
+    used_text_ids: set[int] = set()
+
+    # Pass 1 — strict containment
+    for ti, t in enumerate(texts):
+        ctr = _text_centroid(t)
+        if ctr is None:
+            continue
+        label = _text_label_to_type(t.get("content", ""))
+        if not label:
+            continue
+        pt = Point(ctr)
+        for pi, poly in enumerate(polygons):
+            if not poly.contains(pt):
+                continue
+            existing = allocations.get(pi)
+            # Mamad always wins; otherwise first-come
+            if existing is None or label == "mamad":
+                allocations[pi] = (label, 0.95)
+                used_text_ids.add(ti)
+                break
+
+    # Pass 2 — nearest polygon within proximity for any text not used yet
+    for ti, t in enumerate(texts):
+        if ti in used_text_ids:
+            continue
+        ctr = _text_centroid(t)
+        if ctr is None:
+            continue
+        label = _text_label_to_type(t.get("content", ""))
+        if not label:
+            continue
+        pt = Point(ctr)
+        # Find closest polygon
+        best: Optional[tuple[int, float]] = None
+        for pi, poly in enumerate(polygons):
+            d = poly.distance(pt)
+            if d > proximity_pt:
+                continue
+            if best is None or d < best[1]:
+                best = (pi, d)
+        if best is None:
+            continue
+        pi, _ = best
+        existing = allocations.get(pi)
+        if existing is None or label == "mamad":
+            allocations[pi] = (label, 0.75)
+
+    return allocations
+
+
+def _adjacent_max_thickness(poly: Polygon, walls: list, buffer_pt: float) -> float:
+    poly_buf = poly.buffer(buffer_pt)
+    adjacent_thick = []
+    for w in walls:
+        line = LineString([w.p1, w.p2])
+        if line.intersects(poly_buf):
+            adjacent_thick.append(w.thickness_cm)
+    return max(adjacent_thick) if adjacent_thick else 0.0
 
 
 def _classify_one(
@@ -295,54 +417,46 @@ def _classify_one(
     texts: list,
     walls: list,
     scale_factor: float,
-    is_largest: bool,
+    is_largest_interior: bool,
+    has_mamad_text: bool,
+    pre_allocated_label: Optional[tuple[str, float]],
 ) -> tuple[str, str, float]:
-    """Return (room_type, strategy, confidence)."""
-    # Strategy A — direct text label inside polygon
-    for t in texts:
-        if not t.get("content"):
-            continue
-        bbox = t.get("bbox", [0, 0, 0, 0])
-        cx = (bbox[0] + bbox[2]) / 2
-        cy = (bbox[1] + bbox[3]) / 2
-        if poly.contains(Point(cx, cy)):
-            label = _text_label_to_type(t["content"])
-            if label:
-                return label, "text", 0.95
+    """Return (room_type, strategy, confidence).
 
-    # Strategy B — fixture proximity
+    `pre_allocated_label` is the (label, confidence) assigned to this
+    polygon by the label-allocation pass, or None.
+    `has_mamad_text` is True if a ממ"ד label was found anywhere — when
+    true, mamad-by-thickness is suppressed.
+    """
+    # Strategy A — pre-allocated text label
+    if pre_allocated_label is not None:
+        return pre_allocated_label[0], "text", pre_allocated_label[1]
+
+    # Strategy B — fixture proximity (text fixtures inside polygon)
     for t in texts:
         content = (t.get("content") or "").strip()
-        if content in _FIXTURE_TO_ROOM:
-            bbox = t.get("bbox", [0, 0, 0, 0])
-            cx = (bbox[0] + bbox[2]) / 2
-            cy = (bbox[1] + bbox[3]) / 2
-            if poly.contains(Point(cx, cy)):
-                return _FIXTURE_TO_ROOM[content], "fixture", 0.75
+        if content not in _FIXTURE_TO_ROOM:
+            continue
+        ctr = _text_centroid(t)
+        if ctr and poly.contains(Point(ctr)):
+            return _FIXTURE_TO_ROOM[content], "fixture", 0.75
 
-    # Strategy C — mamad by adjacent wall thickness.
-    # ONLY fires if the room is bordered by walls thicker than nearly
-    # everything else AND the area is in the regulated mamad band.
-    # Israeli apartments have at most one mamad — caller dedups across rooms.
-    poly_buf = poly.buffer((10.0 / 100.0) / scale_factor)
-    adjacent_thick = []
-    for w in walls:
-        line = LineString([w.p1, w.p2])
-        if line.intersects(poly_buf):
-            adjacent_thick.append(w.thickness_cm)
-    if adjacent_thick and len(walls) >= 5:
-        max_thick = max(adjacent_thick)
+    # Strategy C — salon: ALWAYS the largest interior room ≥ 18 sqm
+    if is_largest_interior and area_sqm >= 18.0:
+        return "salon", "heuristic_largest", 0.65
+
+    # Strategy D — mamad by thickness (suppressed if a text mamad exists)
+    if not has_mamad_text and len(walls) >= 5 and 8.0 <= area_sqm <= 14.0:
+        max_thick = _adjacent_max_thickness(
+            poly, walls, (10.0 / 100.0) / scale_factor,
+        )
         all_thick = sorted(w.thickness_cm for w in walls)
         p95 = all_thick[int(len(all_thick) * 0.95)]
         median = all_thick[len(all_thick) // 2]
-        if (max_thick >= p95
-                and max_thick >= median + 4.0
-                and 8.0 <= area_sqm <= 14.0):
+        if max_thick >= p95 and max_thick >= median + 4.0:
             return "mamad", "wall_thickness", 0.70
 
-    # Strategy D — area + position heuristic
-    if is_largest and area_sqm >= 15.0:
-        return "salon", "heuristic_largest", 0.55
+    # Strategy E — area-only heuristics
     if 8.0 <= area_sqm <= 18.0:
         return "bedroom", "heuristic_area", 0.45
     if 4.0 <= area_sqm <= 8.0:
@@ -351,8 +465,32 @@ def _classify_one(
         return "guest_toilet", "heuristic_area", 0.35
     if 6.0 <= area_sqm <= 16.0:
         return "kitchen", "heuristic_area", 0.35
+    if area_sqm > 18.0:
+        return "salon", "heuristic_area", 0.40
 
     return "unknown", "none", 0.0
+
+
+def _find_largest_interior_index(polygons: list[Polygon], texts: list) -> int:
+    """Return index of the largest polygon NOT labelled as a balcony.
+
+    Polygons are sorted by area desc on entry. Walks from the top until it
+    finds one whose own label (if any) isn't a balcony.
+    """
+    for i, poly in enumerate(polygons):
+        for t in texts:
+            ctr = _text_centroid(t)
+            if ctr is None:
+                continue
+            if not poly.contains(Point(ctr)):
+                continue
+            label = _text_label_to_type(t.get("content", ""))
+            if label in ("sun_balcony", "service_balcony"):
+                break
+        else:
+            return i
+        continue
+    return 0
 
 
 def classify_rooms_negative_space(
@@ -363,18 +501,30 @@ def classify_rooms_negative_space(
 ) -> list[Room]:
     """Wrap polygons in Room dataclasses with classification.
 
-    Post-classification dedup ensures each apartment has at most one mamad
-    (Israeli regulation) and at most one salon (largest only).
+    Two-pass: first scans for mamad-text and largest-interior, then
+    classifies each polygon with that context. Post-classification dedup
+    ensures at most one mamad (Israeli regulation: exactly 1 per apartment)
+    and at most one salon.
     """
+    if not polygons:
+        return []
+
+    proximity_pt = (LABEL_PROXIMITY_CM / 100.0) / scale_factor
+    allocations = _allocate_labels_to_polygons(polygons, texts, proximity_pt)
+    has_mamad_text = any(l[0] == "mamad" for l in allocations.values())
+    largest_interior = _find_largest_interior_index(polygons, texts)
+
     rooms = []
     for i, poly in enumerate(polygons):
         area_sqm = poly.area * (scale_factor ** 2)
         perimeter_m = poly.length * scale_factor
         centroid = poly.centroid
-        is_largest = (i == 0)
+        is_largest_interior = (i == largest_interior)
 
         room_type, strategy, conf = _classify_one(
-            poly, area_sqm, texts, walls, scale_factor, is_largest,
+            poly, area_sqm, texts, walls, scale_factor,
+            is_largest_interior, has_mamad_text,
+            allocations.get(i),
         )
         room_type_he = DISPLAY_NAMES_EN_TO_HE.get(room_type, "חדר")
 
@@ -391,14 +541,13 @@ def classify_rooms_negative_space(
             is_modifiable=(room_type != "mamad"),
         ))
 
-    # Dedup mamad: keep only the highest-confidence mamad
+    # Dedup mamad: keep only the highest-confidence one
     mamads = [r for r in rooms if r.room_type == "mamad"]
     if len(mamads) > 1:
         keeper = max(mamads, key=lambda r: r.confidence)
         for r in mamads:
             if r is keeper:
                 continue
-            # Demote to bedroom if area fits, else unknown
             if 8.0 <= r.area_sqm <= 18.0:
                 r.room_type = "bedroom"
                 r.room_type_he = DISPLAY_NAMES_EN_TO_HE["bedroom"]
@@ -407,6 +556,18 @@ def classify_rooms_negative_space(
                 r.room_type = "unknown"
                 r.room_type_he = DISPLAY_NAMES_EN_TO_HE["unknown"]
             r.is_modifiable = True
+
+    # Dedup salon: keep only the largest one classified as salon
+    salons = [r for r in rooms if r.room_type == "salon"]
+    if len(salons) > 1:
+        keeper = max(salons, key=lambda r: r.area_sqm)
+        for r in salons:
+            if r is keeper:
+                continue
+            if 8.0 <= r.area_sqm <= 18.0:
+                r.room_type = "bedroom"
+                r.room_type_he = DISPLAY_NAMES_EN_TO_HE["bedroom"]
+                r.classification_strategy = "demoted_from_salon"
 
     return rooms
 
