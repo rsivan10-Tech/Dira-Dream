@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 from shapely.strtree import STRtree
 
 
@@ -197,6 +197,152 @@ def _classify_thickness(thickness_cm: float, all_thicknesses: list) -> tuple[str
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def keep_largest_wall_component(walls, scale_factor: float):
+    """Keep only the walls in the largest connected component (by total length).
+
+    The apartment is the dominant cluster of walls. Stairwells, neighbouring
+    apartments, and ghost outlines from adjacent floors form smaller clusters
+    that are adjacent but not continuously connected to the apartment envelope.
+    We build a graph where two walls are connected if their endpoints lie
+    within 'tol' of each other OR their centerlines intersect, then return
+    the walls in the largest component.
+
+    Returns (filtered_walls, stats).
+    """
+    if len(walls) <= 1:
+        return walls, {"components": 1, "kept": len(walls), "removed": 0}
+
+    try:
+        import networkx as nx  # local import to avoid hard dep at module load
+    except ImportError:
+        return walls, {"components": 1, "kept": len(walls), "removed": 0}
+
+    # Tolerance: 25cm — generous enough to survive apartment wall
+    # fragmentation. This is a conservative filter: it reliably strips
+    # legend/neighbour clusters that are fully disconnected, but does NOT
+    # separate stairwells that share walls with the apartment. Stairwell
+    # exclusion needs a geometric (exterior-loop) approach — Wave B v2.
+    tol_pt = max(6.0, (25.0 / 100.0) / scale_factor)
+
+    G = nx.Graph()
+    G.add_nodes_from(range(len(walls)))
+
+    lines = [LineString([w.p1, w.p2]) for w in walls]
+    endpoints = [(w.p1, w.p2) for w in walls]
+
+    # Connect wall i to wall j if:
+    #   (a) any endpoint of i is within tol of line j (covers endpoint-on-
+    #       middle T-junctions), OR
+    #   (b) lines i and j intersect.
+    try:
+        tree = STRtree(lines)
+        for i, line_i in enumerate(lines):
+            buf = line_i.buffer(tol_pt)
+            for j in tree.query(buf):
+                j = int(j)
+                if j == i:
+                    continue
+                line_j = lines[j]
+                connected = False
+                # Endpoint-on-line check (both directions)
+                for ep in endpoints[i]:
+                    if line_j.distance(Point(ep)) <= tol_pt:
+                        connected = True
+                        break
+                if not connected:
+                    for ep in endpoints[j]:
+                        if line_i.distance(Point(ep)) <= tol_pt:
+                            connected = True
+                            break
+                if not connected and line_i.intersects(line_j):
+                    connected = True
+                if connected:
+                    G.add_edge(i, j)
+    except Exception:
+        return walls, {"components": 1, "kept": len(walls), "removed": 0}
+
+    components = list(nx.connected_components(G))
+    if len(components) <= 1:
+        return walls, {"components": 1, "kept": len(walls), "removed": 0}
+
+    def component_length(nodes):
+        return sum(walls[i].length_pt for i in nodes)
+    largest = max(components, key=component_length)
+
+    kept_walls = [walls[i] for i in sorted(largest)]
+    return kept_walls, {
+        "components": len(components),
+        "kept": len(kept_walls),
+        "removed": len(walls) - len(kept_walls),
+    }
+
+
+def refine_mamad_walls(walls, mamad_room, scale_factor: float):
+    """Constrain mamad-typed walls to the actual mamad room boundary.
+
+    The thickness-only classifier in `_classify_thickness` will tag any wall
+    in the top thickness decile as 'mamad'. On real PDFs that often produces
+    8-12 mamad walls scattered around the apartment when the actual mamad
+    has only 4 boundary walls. This pass:
+
+      1. If no mamad room was detected → demote every 'mamad'-typed wall to
+         exterior/partition based on its thickness.
+      2. If a mamad room exists → keep only walls that lie on the mamad
+         polygon's exterior ring (both endpoints + midpoint within tol).
+         Demote the rest the same way.
+
+    Mutates `walls` in place. Tolerance is half the mamad's measured wall
+    thickness (in PDF points), capped at 8pt.
+    """
+    if not walls:
+        return
+
+    all_thicks = [w.thickness_cm for w in walls if len(w.source_segment_ids) == 2]
+    mamad_walls = [w for w in walls if w.wall_type == "mamad"]
+    if not mamad_walls:
+        return
+
+    keep_ids: set[str] = set()
+    if mamad_room is not None and mamad_room.polygon is not None:
+        ring = mamad_room.polygon.exterior
+        # Tolerance: a generous fraction of the typical wall thickness in pt.
+        # 12cm / 2 ≈ 6cm = 3.4pt at 1:50; cap at 8pt for thicker scales.
+        max_thick_cm = max((w.thickness_cm for w in mamad_walls), default=12.0)
+        tol_pt = min(8.0, max(3.0, (max_thick_cm / 100.0) / scale_factor * 0.6))
+
+        for w in mamad_walls:
+            line = LineString([w.p1, w.p2])
+            if line.length < 1e-6:
+                continue
+            d_start = ring.distance(Point(w.p1))
+            d_end = ring.distance(Point(w.p2))
+            d_mid = ring.distance(line.interpolate(0.5, normalized=True))
+            if d_start <= tol_pt and d_end <= tol_pt and d_mid <= tol_pt:
+                keep_ids.add(w.id)
+
+    # Demote everything not in keep_ids by re-running the thickness classifier
+    # while EXCLUDING the population's mamad-tier walls — otherwise the demoted
+    # walls would just retag themselves as 'mamad'. We do this by clipping
+    # thicknesses to the exterior cut.
+    if all_thicks:
+        non_mamad_pop = sorted(t for t in all_thicks
+                               if t < max((w.thickness_cm for w in mamad_walls), default=0))
+    else:
+        non_mamad_pop = []
+
+    for w in mamad_walls:
+        if w.id in keep_ids:
+            continue
+        # Pick exterior over partition based on whether this wall is still
+        # in the top half of the (now mamad-free) thickness population.
+        if non_mamad_pop and w.thickness_cm >= float(np.median(non_mamad_pop)):
+            w.wall_type = "exterior"
+            w.confidence = 70.0
+        else:
+            w.wall_type = "exterior"  # thick walls default to exterior, not partition
+            w.confidence = 60.0
+
 
 def find_centerline_walls(
     segments: list,

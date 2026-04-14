@@ -42,6 +42,7 @@ export interface Room {
   classification_method: string; // 'text_label' | 'fixture' | 'area_heuristic' | 'user_override'
   needs_review: boolean;
   is_modifiable: boolean;
+  warnings?: string[];
 }
 
 // ---------------------------------------------------------------------------

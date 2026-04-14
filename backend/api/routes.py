@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 # parallel-line / negative-space / gap-opening pipeline from backend/services/.
 # Default false until Step 5 wires the branch in.
 USE_NEW_PIPELINE = os.environ.get("USE_NEW_PIPELINE", "false").lower() == "true"
+ENABLE_ENVELOPE_FILTER = os.environ.get("ENABLE_ENVELOPE_FILTER", "false").lower() == "true"
 logger = logging.getLogger(__name__)
 if USE_NEW_PIPELINE:
     logger.info("USE_NEW_PIPELINE=true (new pipeline branch will be used once built)")
@@ -133,6 +134,7 @@ class RoomResponse(BaseModel):
     classification_method: str
     needs_review: bool
     is_modifiable: bool
+    warnings: list[str] = Field(default_factory=list)
 
 
 class WallResponse(BaseModel):
@@ -355,6 +357,7 @@ def _serialize_rooms(rooms: list) -> list["RoomResponse"]:
             classification_method=r.classification_strategy,
             needs_review=r.needs_review,
             is_modifiable=r.is_modifiable,
+            warnings=list(getattr(r, "warnings", []) or []),
         ))
     return out
 
@@ -371,7 +374,11 @@ def _analyze_with_new_pipeline(
     )
     from services.opening_detection import detect_openings_from_gaps
     from services.room_detection import detect_rooms_negative_space
-    from services.wall_detection import find_centerline_walls
+    from services.wall_detection import (
+        find_centerline_walls,
+        keep_largest_wall_component,
+        refine_mamad_walls,
+    )
 
     raw = extract_vectors(pdf_path, page_num=page_num)
     pre_crop_metadata = extract_metadata(raw["texts"])
@@ -383,9 +390,25 @@ def _analyze_with_new_pipeline(
     centerline_walls, wall_stats = find_centerline_walls(
         cropped["segments"], scale_factor, histogram,
     )
+
+    # Wave B — apartment envelope filter (flagged). Keeps only the walls in
+    # the largest connected component, dropping stairwells, ghost outlines
+    # from adjacent floors, and disconnected fragments that pollute the
+    # envelope and room detection.
+    if ENABLE_ENVELOPE_FILTER:
+        centerline_walls, envelope_stats = keep_largest_wall_component(
+            centerline_walls, scale_factor,
+        )
+        wall_stats["envelope_filter"] = envelope_stats
+
     rooms, room_stats = detect_rooms_negative_space(
         centerline_walls, cropped["texts"], scale_factor, pre_crop_metadata,
     )
+
+    # Constrain mamad-tagged walls to the actual mamad room boundary
+    mamad_room = next((r for r in rooms if r.room_type == "mamad"), None)
+    refine_mamad_walls(centerline_walls, mamad_room, scale_factor)
+
     thresh = histogram["suggested_thresholds"]
     wall_thresh = thresh[0] if thresh else 0.5
     openings, opening_stats = detect_openings_from_gaps(
@@ -564,6 +587,7 @@ async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
                 classification_method=r.classification_strategy,
                 needs_review=r.needs_review,
                 is_modifiable=r.is_modifiable,
+                warnings=list(getattr(r, "warnings", []) or []),
             ))
 
         # Serialize walls

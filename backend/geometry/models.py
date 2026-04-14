@@ -129,6 +129,7 @@ class Room:
     needs_review: bool = True
     classification_strategy: str = 'none'  # 'text', 'fixture', 'heuristic', 'none'
     is_modifiable: bool = True           # False for mamad
+    warnings: list[str] = field(default_factory=list)  # Hebrew QC notes
 
 
 @dataclass

@@ -299,16 +299,24 @@ def classify_structural(
 
     mamad_ids = set()
     if mamad_room is not None:
-        # Segments near the mamad boundary are mamad walls
-        widths = [s.get("stroke_width", 0.0) for s in segments]
-        max_width = max(widths) if widths else 0.0
-        threshold = max_width * MAMAD_THICKNESS_RATIO
+        # A segment is a mamad wall only if BOTH endpoints lie on the mamad
+        # polygon's exterior ring. This is much stricter than "near the
+        # boundary linestring" — it prevents long exterior walls that merely
+        # brush past the mamad from being tagged.
+        ring = mamad_room.polygon.exterior
+        endpoint_tol = 2.5  # PDF points — endpoint-to-ring distance
         for seg in segments:
-            if seg.get("stroke_width", 0.0) < threshold:
+            sp = Point(seg["start"])
+            ep = Point(seg["end"])
+            if ring.distance(sp) > endpoint_tol or ring.distance(ep) > endpoint_tol:
                 continue
-            seg_line = LineString([seg["start"], seg["end"]])
-            if seg_line.distance(mamad_room.polygon.exterior) < 3.0:
-                mamad_ids.add(_seg_id(seg))
+            # Both endpoints touch the ring — also require the midpoint to be
+            # on the ring, otherwise a chord across the polygon would qualify.
+            mp = Point(((seg["start"][0] + seg["end"][0]) / 2,
+                        (seg["start"][1] + seg["end"][1]) / 2))
+            if ring.distance(mp) > endpoint_tol:
+                continue
+            mamad_ids.add(_seg_id(seg))
 
     # Compute average interior wall thickness (excluding exterior and mamad)
     interior_widths = [

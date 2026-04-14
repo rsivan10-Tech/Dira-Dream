@@ -28,6 +28,7 @@ from shapely.geometry import LineString, MultiPoint, MultiPolygon, Point, Polygo
 from shapely.ops import unary_union
 
 from geometry.models import (
+    AREA_HEURISTICS,
     DISPLAY_NAMES_EN_TO_HE,
     MIN_VALID_ROOM_AREA,
     ROOM_LABELS_HE_TO_EN,
@@ -569,7 +570,61 @@ def classify_rooms_negative_space(
                 r.room_type_he = DISPLAY_NAMES_EN_TO_HE["bedroom"]
                 r.classification_strategy = "demoted_from_salon"
 
+    _enforce_size_ranges(rooms)
     return rooms
+
+
+# Demote-to-fallback table for non-text rooms whose area falls outside the
+# canonical range. Text-matched rooms get a Hebrew warning instead — the PDF
+# label is authoritative even when the polygon is wrong.
+_SIZE_FALLBACKS = (
+    (20.0, 60.0, 'salon'),
+    (8.0, 20.0, 'bedroom'),
+    (4.0, 8.0,  'bathroom'),
+    (1.5, 4.0,  'guest_toilet'),
+)
+
+
+def _enforce_size_ranges(rooms: list[Room]) -> None:
+    """Validate each room's area against its type's canonical range.
+
+    Text-matched rooms (strategy == 'text', confidence >= 90) are NOT demoted
+    — the label wins. They get a Hebrew warning attached and needs_review=True
+    so the UI can flag the polygon-vs-label mismatch (likely a split room or
+    a misplaced label).
+    """
+    for room in rooms:
+        ranges = AREA_HEURISTICS.get(room.room_type)
+        if ranges is None:
+            continue
+        if ranges['min'] <= room.area_sqm <= ranges['max']:
+            continue
+
+        is_text = (room.classification_strategy == 'text'
+                   and room.confidence >= 90)
+        if is_text:
+            warning = (
+                f'שטח לא תואם לסוג החדר '
+                f'({room.area_sqm:.1f} מ״ר, צפוי {ranges["min"]:.0f}-'
+                f'{ranges["max"]:.0f} מ״ר)'
+            )
+            if warning not in room.warnings:
+                room.warnings.append(warning)
+            room.needs_review = True
+            room.confidence = min(room.confidence, 60.0)
+        else:
+            new_type = None
+            for lo, hi, t in _SIZE_FALLBACKS:
+                if lo <= room.area_sqm < hi:
+                    new_type = t
+                    break
+            if new_type is None or new_type == room.room_type:
+                continue
+            room.room_type = new_type
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE[new_type]
+            room.classification_strategy = 'heuristic_size_demote'
+            room.confidence = min(room.confidence, 50.0)
+            room.needs_review = True
 
 
 # ---------------------------------------------------------------------------

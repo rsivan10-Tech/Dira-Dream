@@ -288,51 +288,80 @@ function WindowShape({
     : 20;  // fallback
   const halfW = widthPt / 2;
   const sw = Math.max(1.5, 1.5 / scale);
-  const gap = Math.max(2, 3 / scale);
 
-  // Find nearest wall to determine window orientation
+  // Find the host wall: prefer opening.wall_id, else nearest-wall fallback
   const px = opening.position.x;
   const py = opening.position.y;
-  let bestDist = Infinity;
-  let wallAngle = 0; // default: horizontal
-
-  for (const w of walls) {
-    const dx = w.end.x - w.start.x;
-    const dy = w.end.y - w.start.y;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq < 1) continue;
-    const t = Math.max(0, Math.min(1, ((px - w.start.x) * dx + (py - w.start.y) * dy) / lenSq));
-    const projX = w.start.x + t * dx;
-    const projY = w.start.y + t * dy;
-    const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
-    if (dist < bestDist) {
-      bestDist = dist;
-      wallAngle = Math.atan2(dy, dx);
+  let wallAngle = 0;
+  let hostThickPt = 0;
+  let best: Wall | null = null;
+  const hostById = opening.wall_id
+    ? walls.find((w) => w.id === opening.wall_id)
+    : undefined;
+  if (hostById) {
+    best = hostById;
+    wallAngle = Math.atan2(best.end.y - best.start.y, best.end.x - best.start.x);
+  } else {
+    let bestDist = Infinity;
+    for (const w of walls) {
+      const dx = w.end.x - w.start.x;
+      const dy = w.end.y - w.start.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1) continue;
+      const t = Math.max(0, Math.min(1, ((px - w.start.x) * dx + (py - w.start.y) * dy) / lenSq));
+      const projX = w.start.x + t * dx;
+      const projY = w.start.y + t * dy;
+      const dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+      if (dist < bestDist) {
+        bestDist = dist;
+        wallAngle = Math.atan2(dy, dx);
+        best = w;
+      }
     }
   }
+  if (best && best.thickness_cm && scaleFactor > 0) {
+    hostThickPt = (best.thickness_cm / 100) / scaleFactor;
+  }
 
-  // Draw 3 parallel lines along the wall direction, offset perpendicular
+  // Window symbol must span BEYOND the wall thickness or it's hidden inside
+  // the thick wall stroke. Use at least the wall thickness × 1.2, and a 4pt
+  // floor so it's visible on thin partition walls too.
+  const halfThick = Math.max(hostThickPt / 2 + 1, 4);
+
   const cosA = Math.cos(wallAngle);
   const sinA = Math.sin(wallAngle);
-  // Perpendicular direction
   const perpX = -sinA;
   const perpY = cosA;
 
+  // Four corners of a white background rectangle spanning the opening
+  const corners = [
+    [px - halfW * cosA - halfThick * perpX, py - halfW * sinA - halfThick * perpY],
+    [px + halfW * cosA - halfThick * perpX, py + halfW * sinA - halfThick * perpY],
+    [px + halfW * cosA + halfThick * perpX, py + halfW * sinA + halfThick * perpY],
+    [px - halfW * cosA + halfThick * perpX, py - halfW * sinA + halfThick * perpY],
+  ];
+
   return (
     <Group listening={false}>
-      {[-gap, 0, gap].map((offset, i) => (
-        <Line
-          key={i}
-          points={[
-            px - halfW * cosA + offset * perpX,
-            py - halfW * sinA + offset * perpY,
-            px + halfW * cosA + offset * perpX,
-            py + halfW * sinA + offset * perpY,
-          ]}
-          stroke="#4682B4"
-          strokeWidth={sw}
-        />
-      ))}
+      {/* White cut-out over the wall so the window is visible */}
+      <Line
+        points={corners.flat()}
+        closed
+        fill="#FFFFFF"
+        stroke="#4682B4"
+        strokeWidth={sw}
+      />
+      {/* Center line (glass plane) */}
+      <Line
+        points={[
+          px - halfW * cosA,
+          py - halfW * sinA,
+          px + halfW * cosA,
+          py + halfW * sinA,
+        ]}
+        stroke="#4682B4"
+        strokeWidth={sw}
+      />
     </Group>
   );
 }
@@ -487,6 +516,16 @@ function Sidebar({
           <p style={{ color: '#f57f17', fontSize: '0.82rem', marginBlockStart: 8 }}>
             {fmt('sidebar.roomNeedsReview')}
           </p>
+        )}
+        {room.warnings && room.warnings.length > 0 && (
+          <ul style={{
+            color: '#d84315',
+            fontSize: '0.78rem',
+            marginBlockStart: 6,
+            paddingInlineStart: 16,
+          }}>
+            {room.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
         )}
         {room.type === 'mamad' && (
           <div className="fp-mamad-warning">{fmt('sidebar.mamadWarning')}</div>

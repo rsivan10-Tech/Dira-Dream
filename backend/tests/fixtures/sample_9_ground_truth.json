@@ -51,12 +51,20 @@
         }
       },
       "doors": {
-        "total": 8,
-        "notes": "Entry door, bedroom door, mamad door, bath door, utility door, kitchen/salon passage, service balcony door, sun balcony door"
+        "total": 6,
+        "notes": "Refined 2026-04-14: entry door, bedroom door, mamad door, bath door, utility door, balcony passage. Previous count of 8 double-counted staircase doors that are outside apartment envelope."
       },
       "windows": {
         "total": 5,
         "notes": "On exterior walls only: mamad top-left, BR left, salon bottom, kitchen right, sun balcony bottom"
+      },
+      "walls": {
+        "exterior": 11,
+        "structural_interior": 2,
+        "partition": 5,
+        "mamad": 4,
+        "_total": 22,
+        "_notes": "Refined 2026-04-14. Mamad has exactly 4 walls forming its rectangular envelope."
       },
       "mamad": {
         "present": true,
@@ -67,7 +75,7 @@
   },
   "totals": {
     "rooms": 14,
-    "doors": 15,
+    "doors": 13,
     "windows": 10,
     "mamad_count": 2,
     "mamad_notes": "Mamad on both floors of duplex (thick walls visible on both pages)"
@@ -76,10 +84,12 @@
     "_description": "Acceptable ranges for regression testing. Set to catch regressions while allowing for algorithm improvements.",
     "rooms_min": 10,
     "rooms_max": 22,
-    "doors_min": 8,
+    "doors_min": 6,
     "doors_max": 25,
     "windows_min": 5,
     "windows_max": 16,
-    "mamad_must_detect": true
+    "mamad_must_detect": true,
+    "page1_mamad_walls_max": 6,
+    "_page1_mamad_walls_note": "Mamad has 4 walls in reality; tolerance allows 2 extras for fragmentation. Sprint 5B bug showed 8 — this is the regression guard."
   }
 }

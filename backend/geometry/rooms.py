@@ -322,6 +322,7 @@ def classify_rooms(
     _delete_artifacts(rooms)
     _normalize_to_valid_types(rooms)
     _enforce_single_mamad(rooms)
+    _enforce_size_ranges(rooms)
 
     return rooms
 
@@ -397,8 +398,72 @@ def _enforce_single_mamad(rooms: list[Room]) -> None:
             r.room_type_he = DISPLAY_NAMES_EN_TO_HE["bedroom"]
             r.confidence = max(r.confidence - 30, 30)
             r.needs_review = True
-            r.is_modifiable = True
-            logger.info("Demoted duplicate mamad (%.1f sqm) to bedroom", r.area_sqm)
+
+
+# Demote-to-fallback table for non-text rooms whose area falls outside the
+# canonical range. (text-matched rooms get a warning instead — the label wins.)
+_SIZE_FALLBACKS = (
+    # (min_sqm, max_sqm, type)
+    (20.0, 60.0, 'salon'),
+    (8.0, 20.0, 'bedroom'),
+    (4.0, 8.0,  'bathroom'),
+    (1.5, 4.0,  'guest_toilet'),
+)
+
+
+def _enforce_size_ranges(rooms: list[Room]) -> None:
+    """
+    Validate every room's area against its type's canonical range.
+
+    - Text-matched rooms (confidence >= 90 from 'text' strategy) are NEVER
+      demoted — the PDF label is authoritative. Instead, they get a Hebrew
+      warning attached and needs_review=True so the UI can flag them.
+    - Non-text rooms whose area is outside the type's range get reclassified
+      to a size-appropriate fallback type.
+    """
+    for room in rooms:
+        ranges = AREA_HEURISTICS.get(room.room_type)
+        if ranges is None:
+            continue
+        if ranges['min'] <= room.area_sqm <= ranges['max']:
+            continue
+
+        # Out of range
+        is_text = (room.classification_strategy == 'text'
+                   and room.confidence >= 90)
+        if is_text:
+            warning = (
+                f'שטח לא תואם לסוג החדר '
+                f'({room.area_sqm:.1f} מ״ר, צפוי {ranges["min"]:.0f}-'
+                f'{ranges["max"]:.0f} מ״ר)'
+            )
+            if warning not in room.warnings:
+                room.warnings.append(warning)
+            room.needs_review = True
+            room.confidence = min(room.confidence, 60.0)
+            logger.info(
+                "Size warning: %s area=%.1f sqm (range %.0f-%.0f)",
+                room.room_type, room.area_sqm,
+                ranges['min'], ranges['max'],
+            )
+        else:
+            # Demote to the fallback type whose range contains this area
+            new_type = None
+            for lo, hi, t in _SIZE_FALLBACKS:
+                if lo <= room.area_sqm < hi:
+                    new_type = t
+                    break
+            if new_type is None or new_type == room.room_type:
+                continue
+            logger.info(
+                "Demoting %s (%.1f sqm, conf=%.0f) -> %s",
+                room.room_type, room.area_sqm, room.confidence, new_type,
+            )
+            room.room_type = new_type
+            room.room_type_he = DISPLAY_NAMES_EN_TO_HE[new_type]
+            room.classification_strategy = 'heuristic_size_demote'
+            room.confidence = min(room.confidence, 50.0)
+            room.needs_review = True
 
 
 # ---------------------------------------------------------------------------

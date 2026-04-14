@@ -18,6 +18,7 @@ export interface AnalyzeResponse {
     area_sqm: number; perimeter_m: number; polygon: number[][];
     centroid: { x: number; y: number }; label_point: { x: number; y: number };
     classification_method: string; needs_review: boolean; is_modifiable: boolean;
+    warnings?: string[];
   }>;
   walls: Array<{
     id: string; start: { x: number; y: number }; end: { x: number; y: number };
@@ -58,6 +59,7 @@ export function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
     classification_method: r.classification_method,
     needs_review: r.needs_review,
     is_modifiable: r.is_modifiable,
+    warnings: r.warnings,
   }));
 
   const walls: Wall[] = raw.walls.map((w) => ({
