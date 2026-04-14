@@ -107,6 +107,7 @@ function WallSegment({
   onHover,
   onSelect,
   scale,
+  scaleFactor,
 }: {
   wall: Wall;
   isHovered: boolean;
@@ -115,6 +116,7 @@ function WallSegment({
   onHover: (w: Wall | null) => void;
   onSelect: (w: Wall) => void;
   scale: number;
+  scaleFactor: number;
 }) {
   const color = isHovered
     ? '#FFD600'
@@ -124,8 +126,15 @@ function WallSegment({
         ? WALL_COLORS[wall.wall_type]
         : '#4A4A4A';
 
-  const sw =
-    Math.max(wall.width * WALL_WIDTH_MULTIPLIER[wall.wall_type], 2);
+  // Quality Sprint: when the wall carries a measured thickness_cm (from
+  // the centerline pipeline), render it at its real thickness in PDF
+  // points. Otherwise fall back to stroke-width × type multiplier.
+  let sw: number;
+  if (wall.thickness_cm && scaleFactor > 0) {
+    sw = Math.max((wall.thickness_cm / 100) / scaleFactor, 2);
+  } else {
+    sw = Math.max(wall.width * WALL_WIDTH_MULTIPLIER[wall.wall_type], 2);
+  }
 
   // Only dash truly unclassified walls when other classified walls exist nearby
   // (avoids grey-dashed-everything when all walls are unknown from raw extraction)
@@ -1125,6 +1134,7 @@ export default function FloorplanViewer({
                         onHover={setHoveredWall}
                         onSelect={handleWallSelect}
                         scale={scale}
+                        scaleFactor={data.scale_factor}
                       />
                     ))}
                   </Layer>

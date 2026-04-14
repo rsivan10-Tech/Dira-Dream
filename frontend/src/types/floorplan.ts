@@ -65,6 +65,9 @@ export interface Wall {
   is_modifiable: boolean;
   confidence: number;
   rooms: string[];               // adjacent room IDs
+  // Real-world wall thickness in cm. Populated by the Quality Sprint
+  // centerline pipeline. Absent on legacy stroke-line walls.
+  thickness_cm?: number;
 }
 
 // ---------------------------------------------------------------------------

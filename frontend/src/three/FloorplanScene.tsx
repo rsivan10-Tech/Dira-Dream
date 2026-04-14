@@ -76,7 +76,11 @@ export function WallMesh({ wall, scaleFactor, openings }: WallMeshProps) {
     if (length < 0.001) return null;
 
     const angle = Math.atan2(dz, dx);
-    const thickness = WALL_THICKNESS_M[wall.wall_type] ?? WALL_THICKNESS_M.unknown;
+    // Prefer measured thickness from the new centerline pipeline; fall
+    // back to the wall-type lookup for legacy stroke-line walls.
+    const thickness = wall.thickness_cm
+      ? wall.thickness_cm / 100
+      : (WALL_THICKNESS_M[wall.wall_type] ?? WALL_THICKNESS_M.unknown);
 
     return { s, e, length, angle, thickness };
   }, [wall, scaleFactor]);
@@ -462,7 +466,10 @@ function BaseboardGroup({
         const length = Math.sqrt(dx * dx + dz * dz);
         if (length < 0.01) return null;
         const angle = Math.atan2(dz, dx);
-        const thickness = (WALL_THICKNESS_M[w.wall_type] ?? WALL_THICKNESS_M.unknown) + 0.01;
+        const baseThickness = w.thickness_cm
+          ? w.thickness_cm / 100
+          : (WALL_THICKNESS_M[w.wall_type] ?? WALL_THICKNESS_M.unknown);
+        const thickness = baseThickness + 0.01;
         return { s, e, length, angle, thickness, id: w.id };
       })
       .filter(Boolean) as Array<{
@@ -512,22 +519,24 @@ function computeLayout(data: FloorplanData): SceneLayout {
 
   console.log(`[3D] computeLayout: ${data.walls.length} total walls, ${rawFiltered.length} after type filter, ${data.openings.length} openings`);
 
-  // 1. Remove wall fragments inside door openings.  The door gap between
-  //    segments IS the opening — we just need to clear fragments that block it.
-  const afterDoorFilter = filterDoorZones(rawFiltered, data.openings);
+  // Quality Sprint: if walls already carry a measured thickness_cm, they
+  // come from the new centerline pipeline and have ALREADY been collapsed
+  // from parallel pairs. Skip the merger — it would double-collapse and
+  // discard the measured thickness.
+  const isCenterlinePipeline = rawFiltered.some((w) => w.thickness_cm);
 
-  console.log(`[3D] After door zone filter: ${afterDoorFilter.length} walls (removed ${rawFiltered.length - afterDoorFilter.length})`);
-
-  // 2. Merge collinear wall segments into continuous walls for 3D rendering.
-  //    The healing pipeline splits walls at every intersection, producing
-  //    hundreds of tiny fragments too short to cut window holes into.
-  const collinearMerged = mergeCollinearWalls(afterDoorFilter);
-
-  // 3. Merge parallel overlapping walls — Israeli PDFs draw exterior walls
-  //    as 2-3 parallel lines (inner/outer face + fill). Without this,
-  //    overlapping wall meshes block window/door openings.
-  const parallelMerged = mergeParallelWalls(collinearMerged);
-  let mergedWalls = parallelMerged.map(mergedToWall);
+  let mergedWalls: WallData[];
+  if (isCenterlinePipeline) {
+    console.log(`[3D] Centerline pipeline detected — skipping wall merger`);
+    mergedWalls = filterDoorZones(rawFiltered, data.openings);
+  } else {
+    // Legacy pipeline: raw stroke lines need the full merger chain.
+    const afterDoorFilter = filterDoorZones(rawFiltered, data.openings);
+    console.log(`[3D] After door zone filter: ${afterDoorFilter.length} walls (removed ${rawFiltered.length - afterDoorFilter.length})`);
+    const collinearMerged = mergeCollinearWalls(afterDoorFilter);
+    const parallelMerged = mergeParallelWalls(collinearMerged);
+    mergedWalls = parallelMerged.map(mergedToWall);
+  }
 
   console.log(`[3D] After merger: ${mergedWalls.length} merged walls`);
 

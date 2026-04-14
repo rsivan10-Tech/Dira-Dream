@@ -23,6 +23,7 @@ export interface AnalyzeResponse {
     id: string; start: { x: number; y: number }; end: { x: number; y: number };
     width: number; wall_type: string; is_structural: boolean;
     is_modifiable: boolean; confidence: number; rooms: string[];
+    thickness_cm?: number | null;
   }>;
   openings: Array<{
     id: string; type: string; width_cm: number;
@@ -69,6 +70,7 @@ export function analyzeToFloorplan(raw: AnalyzeResponse): FloorplanData {
     is_modifiable: w.is_modifiable,
     confidence: w.confidence,
     rooms: w.rooms,
+    thickness_cm: w.thickness_cm ?? undefined,
   }));
 
   const openings: Opening[] = raw.openings.map((o) => ({

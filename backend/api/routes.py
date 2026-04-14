@@ -145,6 +145,9 @@ class WallResponse(BaseModel):
     is_modifiable: bool
     confidence: float
     rooms: list[str] = Field(default_factory=list)
+    # Real-world wall thickness in cm. Populated by the new centerline
+    # pipeline; absent for legacy stroke-line walls.
+    thickness_cm: Optional[float] = None
 
 
 class OpeningResponse(BaseModel):
@@ -313,9 +316,167 @@ async def extract_pdf(file: UploadFile, page_num: int = Form(0)):
             os.unlink(tmp_path)
 
 
+def _serialize_metadata(pre_crop_metadata: dict) -> "MetadataResponse":
+    return MetadataResponse(
+        scale_notation=pre_crop_metadata.get("scale_notation"),
+        scale_value=pre_crop_metadata.get("scale_value"),
+        total_area_sqm=pre_crop_metadata.get("total_area_sqm"),
+        balcony_area_sqm=pre_crop_metadata.get("balcony_area_sqm"),
+        area_values=[
+            AreaValueResponse(
+                value=av["value"], context=av["context"], bbox=list(av["bbox"]),
+            )
+            for av in pre_crop_metadata.get("area_values", [])
+        ],
+        fixture_labels=[
+            FixtureLabelResponse(
+                label=fl["label"], bbox=list(fl["bbox"]), font_size=fl["font_size"],
+            )
+            for fl in pre_crop_metadata.get("fixture_labels", [])
+        ],
+    )
+
+
+def _serialize_rooms(rooms: list) -> list["RoomResponse"]:
+    out = []
+    for i, r in enumerate(rooms):
+        coords = list(r.polygon.exterior.coords)
+        rep = r.polygon.representative_point()
+        out.append(RoomResponse(
+            id=f"room_{i}",
+            type=r.room_type,
+            type_he=r.room_type_he,
+            confidence=r.confidence,
+            area_sqm=r.area_sqm,
+            perimeter_m=r.perimeter_m,
+            polygon=[[c[0], c[1]] for c in coords],
+            centroid=PointResponse(x=r.centroid[0], y=r.centroid[1]),
+            label_point=PointResponse(x=rep.x, y=rep.y),
+            classification_method=r.classification_strategy,
+            needs_review=r.needs_review,
+            is_modifiable=r.is_modifiable,
+        ))
+    return out
+
+
+def _analyze_with_new_pipeline(
+    pdf_path: str, page_num: int, page_count: int,
+) -> "AnalyzeResponse":
+    """Quality Sprint pipeline: parallel walls + negative space + gap openings."""
+    from geometry.extraction import (
+        compute_stroke_histogram,
+        crop_legend,
+        extract_metadata,
+        extract_vectors,
+    )
+    from services.opening_detection import detect_openings_from_gaps
+    from services.room_detection import detect_rooms_negative_space
+    from services.wall_detection import find_centerline_walls
+
+    raw = extract_vectors(pdf_path, page_num=page_num)
+    pre_crop_metadata = extract_metadata(raw["texts"])
+    cropped = crop_legend(raw)
+    histogram = compute_stroke_histogram(cropped["segments"])
+    scale_value = pre_crop_metadata.get("scale_value") or 50
+    scale_factor = (0.0254 / 72) * scale_value
+
+    centerline_walls, wall_stats = find_centerline_walls(
+        cropped["segments"], scale_factor, histogram,
+    )
+    rooms, room_stats = detect_rooms_negative_space(
+        centerline_walls, cropped["texts"], scale_factor, pre_crop_metadata,
+    )
+    thresh = histogram["suggested_thresholds"]
+    wall_thresh = thresh[0] if thresh else 0.5
+    openings, opening_stats = detect_openings_from_gaps(
+        centerline_walls,
+        cropped["segments"],
+        None,
+        scale_factor,
+        rooms=rooms,
+        wall_threshold=wall_thresh,
+    )
+
+    # Build host_map: opening position → nearest wall id
+    host_map = opening_stats.get("host_map", {}) or {}
+    wall_ids = [f"wall_{i}" for i, _ in enumerate(centerline_walls)]
+
+    room_responses = _serialize_rooms(rooms)
+
+    wall_responses = []
+    for i, w in enumerate(centerline_walls):
+        wall_responses.append(WallResponse(
+            id=f"wall_{i}",
+            start=PointResponse(x=w.p1[0], y=w.p1[1]),
+            end=PointResponse(x=w.p2[0], y=w.p2[1]),
+            width=1.0,  # stroke width not meaningful for centerlines
+            wall_type=w.wall_type,
+            is_structural=(w.wall_type in ("exterior", "mamad", "structural")),
+            is_modifiable=(w.wall_type not in ("exterior", "mamad")),
+            confidence=w.confidence,
+            thickness_cm=w.thickness_cm,
+        ))
+
+    opening_responses = []
+    for i, o in enumerate(openings):
+        ep = None
+        if o.endpoints:
+            ep = [PointResponse(x=p[0], y=p[1]) for p in o.endpoints]
+        wall_id = wall_ids[host_map[i]] if i in host_map and host_map[i] < len(wall_ids) else ""
+        opening_responses.append(OpeningResponse(
+            id=f"opening_{i}",
+            type=o.opening_type,
+            width_cm=o.width_cm,
+            position=PointResponse(x=o.position[0], y=o.position[1]),
+            wall_id=wall_id,
+            swing_direction=o.swing_direction,
+            endpoints=ep,
+        ))
+
+    texts = [
+        TextResponse(
+            content=t["content"], x=t["bbox"][0], y=t["bbox"][1],
+            font_size=t["font_size"],
+        )
+        for t in cropped["texts"]
+    ]
+
+    metadata = _serialize_metadata(pre_crop_metadata)
+
+    room_confs = [r.confidence for r in rooms] if rooms else [0]
+    overall = int(sum(room_confs) / len(room_confs))
+
+    return AnalyzeResponse(
+        rooms=room_responses,
+        walls=wall_responses,
+        openings=opening_responses,
+        texts=texts,
+        confidence=overall,
+        page_size=PageSizeResponse(
+            width=cropped["page_size"][0], height=cropped["page_size"][1],
+        ),
+        scale_factor=scale_factor,
+        metadata=metadata,
+        page_num=page_num,
+        page_count=page_count,
+        pipeline_stats={
+            "pipeline": "new_quality_sprint",
+            "wall_stats": wall_stats,
+            "room_stats": room_stats,
+            "opening_stats": {
+                k: v for k, v in opening_stats.items() if k != "host_map"
+            },
+        },
+    )
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
-    """Full pipeline: extract → crop → heal → graph → rooms → structural."""
+    """Full pipeline: extract → crop → heal → graph → rooms → structural.
+
+    When USE_NEW_PIPELINE=true, routes to the Quality Sprint pipeline
+    (parallel walls + negative space + host-mapped openings) instead.
+    """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=400,
@@ -339,6 +500,10 @@ async def analyze_pdf(file: UploadFile, page_num: int = Form(0)):
 
         if page_num < 0 or page_num >= page_count:
             raise ValueError(f"Page {page_num} out of range (0-{page_count - 1})")
+
+        # Quality Sprint: new pipeline branch when flag is set
+        if USE_NEW_PIPELINE:
+            return _analyze_with_new_pipeline(tmp_path, page_num, page_count)
 
         # 1. Extract
         raw = extract_vectors(tmp_path, page_num=page_num)
